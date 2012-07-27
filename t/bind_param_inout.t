@@ -18,7 +18,7 @@ use Test::MockDBI;                 # what we are testing
 my $dbh = undef;                   # mock DBI database handle
 my $md  = undef;                   # Test::MockDBI instance
 
-$md = Test::MockDBI::get_instance("debug=true");
+$md = Test::MockDBI::get_instance();
 isa_ok($md, q{Test::MockDBI}, q{Expect a Test::MockDBI reference});
 
 # Connect and prepare
@@ -38,7 +38,7 @@ subtest "Failure" => sub {
 sub bindinout_success {
 
   # success case
-  $dbh->prepare("return values are set");
+  $dbh->prepare("inout values are set");
   my $column1     = 0.125;
   my $column2     = "China";
   my $column3 = -1421;
@@ -48,9 +48,6 @@ sub bindinout_success {
     { 1 => $column1, 2 => $column2, 3 => $column3 }
   );
 
-  # my $rv1;
-  # my $rv2;
-  # my $rv3;
   my $rv1 = 0;
   my $rv2 = 0;
   my $rv3 = 0;
@@ -70,27 +67,21 @@ sub bindinout_success {
 sub bindinout_failure {
 
   # failing case
-  $dbh->prepare("return value is set with failure SQLState and SQLCode");
-
-  my $warn = qr/DBI::db bind_columns failed/;
-  warnings_like { $dbh->bind_columns() } $warn,
-"Expect warning like DBI::db bind_columns failed: SQL0100 There are no columns for binding. SQLSTATE=02000";
-
-  $md->set_retval_scalar(1,
-    "return value is set with failure SQLState and SQLCode");
+  $dbh->prepare("return undef if ARRAY ref is used");
 
   my @ret_val = ();
-  $dbh->bind_param_inout(5, \@ret_val, 22);
-  $dbh->execute();
 
-  ok(
-    $ret_val[0]->[0] eq '02000' && $ret_val[0]->[1] eq '+100',
-"return value is set and has returned the SQLState:$ret_val[0]->[0] and SQLCode:$ret_val[0]->[1]"
-  );
+  warning_is {
+    ok(!$dbh->bind_param_inout(5, \@ret_val, 22),
+      q{bind_param_inout should return undef when arg is ARRAY ref});
+  }
+  q{DBI::db bind_param_inout failed: bind_param_inout needs a reference to a scalar value},
+    q{Expect warning on ARRAY ref};
 
-  $dbh->finish();
 
 }
 
 done_testing();
+
+__END__
 

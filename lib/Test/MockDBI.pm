@@ -359,7 +359,7 @@ sub handle_inouts {
 
       # Set all inout values
       foreach my $params (keys %{ $hr->{"inouts"} }) {
-        $hr->{"inouts"}->{$params}->{refvar} =
+        ${ $hr->{"inouts"}->{$params}->{refvar} } =
           $hr->{"inouts"}->{$params}->{inoutvalue};
       }
     }
@@ -459,16 +459,13 @@ sub _is_bad_param {
 }
 
 sub handle_errors {
-        
         my $self   = shift;    # my blessed self
         my $errormsg = shift; # the error message
         my $caller = shift || (caller(1))[3]; # the error message
-        my $sqlcode = "SQL0100";
-        my $sqlstate = "SQLSTATE=02000";
        
-        warn "DBI::db $caller failed: $sqlcode $errormsg. $sqlstate\n" if (defined ($self->{PrintError}) && $self->{PrintError} == 1);
-        die "DBI::db $caller failed: $sqlcode $errormsg. $sqlstate\n" if (defined ($self->{RaiseError}) && $self->{RaiseError} == 1);
-        
+        warn "DBI::db $caller failed: $errormsg" if (defined ($self->{PrintError}) && $self->{PrintError} == 1);
+        die  "DBI::db $caller failed: $errormsg" if (defined ($self->{RaiseError}) && $self->{RaiseError} == 1);
+      
 }
 
 #
@@ -598,7 +595,8 @@ if ($type) {
      commit =>  sub {
         my $self  = shift;
 
-		warn("commit ineffective with AutoCommit enabled")  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 0);
+		warn("commit ineffective with AutoCommit enabled")  
+		  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 0);
         
         if ( $commit_rollback_enable ){
             $wait_for_commit = $rollback ? 1 : 0 ;
