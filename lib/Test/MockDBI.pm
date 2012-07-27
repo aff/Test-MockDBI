@@ -2,8 +2,6 @@ package Test::MockDBI;
 
 # Test DBI interfaces using Test::MockObject.
 
-# $Id: MockDBI.pm 283 2009-02-03 12:39:11Z aff $
-
 # ------ use/require pragmas
 use 5.008;                              # minimum Perl is V5.8.0
 use strict;                             # better compile-time checking
@@ -24,7 +22,7 @@ our @EXPORT_OK                          # symbols to export upon request
  = ( @{ $EXPORT_TAGS{'all'} } );
 our @EXPORT = qw();                     # symbols to always export
 our @ISA = qw(Exporter);                # we ISA Exporter :)
-our $VERSION = '0.66';                  # our version number
+our $VERSION = '0.67';                  # our version number
 
 # ------ file-global variables
 my %array_retval  = ();                 # return array values for matching SQL
@@ -40,6 +38,7 @@ my $mock          = "";                 # mock DBI object from Test::MockObject:
 my $object        = "";                 # our fake DBI object
 my %rows_retval   = ();                 # return DBI::rows() values for matching SQL
 my %scalar_retval = ();                 # return scalar values for matching SQL
+my %inout_hash    = ();
 my $type          = 0;                  # DBI testing type from command line
 my %errstr        = ();                 # The scalar to return for errors
 my $debug         = undef;              # Toggle to enable debugging
@@ -240,27 +239,29 @@ sub _fake {
         $retval = shift;
         return ( $wait_for_commit && $commit_rollback_enable ) ? '' : _force_retval_scalar($retval);
         
-    } elsif($method =~ m/^bind_param_inout/) {
+    # } elsif($method =~ m/^bind_param_inout/) {
         
-        my $temp = undef;                # 1 of @bad_params
-        my $arrayref = undef;
-        $retval = shift;
+    #     my $temp = undef;                # 1 of @bad_params
+    #     my $arrayref = undef;
+    #     # $retval = shift;
+    #     # print "bind_param_inout - retval: " . Dumper($retval) if ($debug);
+
+    #     $arrayref = $arg->fetchrow_arrayref();                                 
+    #     $temp  = $arrayref;
         
-        $arrayref = $arg->fetchrow_arrayref();                                 
-        $temp  = $arrayref;
-        
-        push(@{$temp}, 'SQLState') if (!grep /SQLState$/i, @{$temp});
-        push(@{$temp}, 'SQLCode') if (!grep /SQLCode$/i, @{$temp});  
-        push(@$retval, $temp);    
+    #     # push(@{$temp}, 'SQLState') if (!grep /SQLState$/i, @{$temp});
+    #     # push(@{$temp}, 'SQLCode') if (!grep /SQLCode$/i, @{$temp});  
+    #     # push(@$retval, $temp);    
         
      
-        foreach my $val (@{$retval->[0]}) {           
-            $val = '02000' if ($val eq 'SQLState' && !$arrayref);
-            $val = '00000' if ($val eq 'SQLState' && $arrayref);
+    #     # foreach my $val (@{$retval->[0]}) {           
+    #     #     $val = '02000' if ($val eq 'SQLState' && !$arrayref);
+    #     #     $val = '00000' if ($val eq 'SQLState' && $arrayref);
             
-            $val = '+100' if ($val eq 'SQLCode' && !$arrayref);
-            $val = '+000' if ($val eq 'SQLCode' && $arrayref); 
-        }
+    #     #     $val = '+100' if ($val eq 'SQLCode' && !$arrayref);
+    #     #     $val = '+000' if ($val eq 'SQLCode' && $arrayref); 
+    #     # }
+
     }    
 
     if ( defined $method && defined $arg && $method =~ /^(prepare|do|prepare_cached)/i  && $arg =~ /^(select)/i ) {        
@@ -336,6 +337,67 @@ sub set_retval_scalar {
     push @{ $scalar_retval{$type} },
      { "SQL" => $sql, "retval" => $_[0] };
    
+}
+
+sub handle_inouts {
+  my $self = shift;
+
+  # store ref_value which should be set on execute
+  foreach my $hr (@{ $inout_hash{$type} }) {
+    if (_sql_match($cur_sql, $hr->{"SQL"})) {
+
+      # check that ref_value are set for all params without
+      # altering anything
+      foreach my $params (keys %{ $hr->{"inouts"} }) {
+        if (!exists $hr->{"inouts"}->{$params}->{refvar}) {
+          die "missing refval";    # TODO
+        }
+        if (!exists $hr->{"inouts"}->{$params}->{inoutvalue}) {
+          die "missing inoutvalue";    # TODO
+        }
+      }
+
+      # Set all inout values
+      foreach my $params (keys %{ $hr->{"inouts"} }) {
+        $hr->{"inouts"}->{$params}->{refvar} =
+          $hr->{"inouts"}->{$params}->{inoutvalue};
+      }
+    }
+  }
+
+  return 1;
+}
+
+
+
+
+# ------ set up scalar inout value(s) for the specified SQL pattern
+
+# usage: set_inout_hash(1, "call func()", { 3 => 42, 5 => "success"})
+
+sub set_inout_hashref {
+  my $self       = shift;
+  my $type       = shift;
+  my $sql        = shift;
+  my $io_hashref = shift;    # E.g. { 3 => 42, 5 => "success" }
+  
+  die unless $io_hashref; # TODO
+  die unless scalar(keys %{$io_hashref}); # TODO - must have at least
+                                          # one element
+
+  # Transform io_hashref to make it easy to set refvar in bind_param_inout
+  foreach my $key (keys %{$io_hashref}) {
+    $io_hashref->{$key} =
+      { 
+	   inoutvalue => $io_hashref->{$key}, 
+	   # intentional comment below
+#	   refvar     => undef   # <-- This key will be added in bind_param_inout
+	  };
+  }
+
+  push @{ $inout_hash{$type} }, { "SQL" => $sql, "inouts" => $io_hashref };
+
+
 }
 
 
@@ -502,8 +564,8 @@ if ($type) {
      err =>  sub {
         my $self = shift;
         $self->{Err} = $DBI::stderr;
-        return $self->{Err};# if defined $self->{Err};#DBI->errstr;
-        return _fake("errstr", $_[0], $errstr{$type});
+        return $self->{Err};# if defined $self->{Err};#DBI->errstr; 
+       return _fake("errstr", $_[0], $errstr{$type});
      },
      prepare =>  sub {
         my $self =shift;
@@ -535,13 +597,8 @@ if ($type) {
      },
      commit =>  sub {
         my $self  = shift;
-        
-        if ( defined($self->{AutoCommit}) && $self->{AutoCommit} == 1){
-            $DBI::stderr = "Cannot commit when AutoCommit is on";
-            warn $DBI::stderr;
-            handle_errors($object,"Cannot commit when AutoCommit is on", "commit");
-            return 1;
-        }
+
+		warn("commit ineffective with AutoCommit enabled")  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 0);
         
         if ( $commit_rollback_enable ){
             $wait_for_commit = $rollback ? 1 : 0 ;
@@ -571,8 +628,6 @@ if ($type) {
         print "\nbind_param()\n" if ($debug);
         print "parm $param, value " if ($debug);
         
-        print Dumper($value);
-        
         if ($attr_or_type) {
             if (ref($attr_or_type) eq "HASH") {
                 print "  attrs ", Dumper($attr_or_type) if ($debug);
@@ -598,18 +653,28 @@ if ($type) {
         return 1;
      },
      bind_param_inout => sub {
+	    #print "ARGS:" . Dumper(\@_) if ($debug);
                
         my $self        = shift;             # my blessed self
-        my $params       = _define(shift);    # parameter number
+        my $params       = _define(shift);   # parameter number
         my $ref_value   = shift;             # Reference of bind value
         
         my $max_len     = _define(shift);    # Min. amount of memory to allocate to bind value
         
-        unless ( ref $ref_value ~~ /ARRAY/) {
-            $DBI::stderr = "The return paramater must be array reference";
-            handle_errors($self,"The return parameter must be array reference", "bind_param_inout");
+        if ( ref($ref_value) ne 'SCALAR' ) {
+		    print "ref(ref_value) is " . ref($ref_value) . "\n" if ($debug);
+
+            $DBI::stderr = "bind_param_inout needs a reference to a scalar value";
+            handle_errors($self,"bind_param_inout needs a reference to a scalar value", "bind_param_inout");
             return;
         }
+
+		# store ref_value which should be set on execute
+		foreach my $hr (@{$inout_hash{$type}} ) {
+   	      if (_sql_match($cur_sql, $hr->{"SQL"})) {
+  		    $hr->{"inouts"}->{$params}->{refvar} = $ref_value; 
+		  }
+	    }
         
         return _fake("bind_param_inout", $self, $ref_value) or handle_errors($self,"Binding failed", "bind_param_inout");
         
@@ -625,6 +690,7 @@ if ($type) {
         return _fake("do", $_[1], 1);
      },
      execute =>  sub {
+	    return unless handle_inouts();
         return _fake("execute", $_[1], 1) or handle_errors($object,"Execute failed", "execute");
      },
      finish =>  sub {
