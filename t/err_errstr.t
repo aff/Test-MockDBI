@@ -15,7 +15,7 @@ use File::Spec::Functions;
 use lib catdir qw ( blib lib );    # use local module
 use Test::MockDBI;     # what we are testing
 
-plan tests => 18;
+plan tests => 16;
 
 # ------ define variables
 my $dbh        = undef;    # mock DBI database handle
@@ -44,12 +44,10 @@ isa_ok($dbh, q{DBI::db}, q{Expect a DBI::db reference});
     ok(! defined $dbh->errstr(), "Expect no error");
     #ok($dbh->err() ne "Could not prepare, Please check the SQL query", "Expect no error");
     
-    my $column = undef;
-    
-    my $warn = qr/DBI::db bind_param_inout failed/;
-    warnings_like { $dbh->bind_param_inout(2,\$column,4 ) } $warn, "Expect warning like DBI::db bind_param_inout failed: SQL0100 The return parameter must be array reference. SQLSTATE=02000";
+    # this should fail
+    warnings_like { $dbh->bind_param_inout(2, {} ,4 ); } qr/reference to a scalar value/, "Expect warning";    
 
-    ok(defined $dbh->err(), "Expect no error");
+    ok(defined $dbh->err(), "Expect  error");
     #ok($dbh->err() ne 'Second Parameter must be refernce', "Expect no error");
     $md->set_retval_array(2,"Select query from User", 42);
     
@@ -80,21 +78,17 @@ isa_ok($dbh, q{DBI::db}, q{Expect a DBI::db reference});
     my $warning_bind = qr/DBI::db bind_param_inout failed/;
     warnings_like { $dbh->bind_param_inout(2,$column,4 ); } $warning_bind, "Expect warning like DBI::db bind_param_inout failed: SQL0100 The return parameter must be array reference. SQLSTATE=02000";
 
-    ok($dbh->err eq 'The return paramater must be array reference', "Expect error");
+    cmp_ok($dbh->err, 'eq', 'bind_param_inout needs a reference to a scalar value', "Expect error");
     
     # When Auto commit is 1, expect commit to set an error message
     
-    my $warn_commit = [qr/Cannot commit when AutoCommit/, qr/DBI::db commit failed/];
-    warnings_like { $dbh->commit() } $warn_commit, "Expect warning like (Cannot commit when AutoCommit is on) DBI::db commit failed: SQL0100 Cannot commit when AutoCommit is on. SQLSTATE=02000";
-
-    ok( $dbh->errstr eq 'Cannot commit when AutoCommit is on', "Expect error");
+    warnings_like { $dbh->commit() } qr/commit ineffective with AutoCommit enabled/, "Expect warning like \"commit ineffective with AutoCommit enabled\"";
     
     # When AutoCommit is 1, expect rollback to set an error msg
     
-    my $warn_rollback = [qr/Cannot rollback when AutoCommit/, qr/DBI::db rollback failed/];
-    warnings_like { $dbh->rollback(); } $warn_rollback, "Expect warning like (Cannot rollback when AutoCommit is on) DBI::db rollback failed: SQL0100 Cannot rollback when AutoCommit is on. SQLSTATE=02000";
-
-    ok( $dbh->err eq 'Cannot rollback when AutoCommit is on', "Expect error");
+    warnings_like {
+        $dbh->rollback();
+    } qr/rollback ineffective with AutoCommit enabled/, "Expect warning like \"rollback ineffective with AutoCommit enabled\"";
     
     $dbh->finish();
 }

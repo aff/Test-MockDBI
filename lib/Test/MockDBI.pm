@@ -596,7 +596,7 @@ if ($type) {
         my $self  = shift;
 
 		warn("commit ineffective with AutoCommit enabled")  
-		  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 0);
+		  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 1);
         
         if ( $commit_rollback_enable ){
             $wait_for_commit = $rollback ? 1 : 0 ;
@@ -729,10 +729,8 @@ if ($type) {
      rollback => sub {
         my $self  = shift;       
         if ( $self->{AutoCommit} == 1){
-                $DBI::stderr = "Cannot rollback when AutoCommit is on";
+                $DBI::stderr = "rollback ineffective with AutoCommit enabled";
                 warn $DBI::stderr;
-                handle_errors($self,"Cannot rollback when AutoCommit is on", "rollback");
-                return 1;
         }
         if ( $commit_rollback_enable ){
             $rollback = 1;

@@ -80,8 +80,8 @@ sub commit_test {
         my $status = $md->set_retval_scalar(2, $sql->{$sql_type}, [ $result->{commit}->{$sql_type} ] ) ;
         $dbh->prepare( $sql->{$sql_type} );
         
-        my $warn = [qr/commit ineffective/, qr/DBI::db commit failed/];
-        warnings_like { $dbh->commit() } $warn, "Expect warning like commit ineffective" if ($commit_flag == 1 && $autocommit == 1);
+        my $warn = qr/commit ineffective/;
+        warning_like { $dbh->commit() } $warn, "Expect warning like commit ineffective" if ($commit_flag == 1 && $autocommit == 1);
 
         ok($dbh->commit(), "Testing [ $sql_type ] Expect Success") if ($commit_flag == 1 && $autocommit == 0);
     

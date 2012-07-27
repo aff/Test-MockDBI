@@ -50,8 +50,8 @@ is($dbh->prepare_cached("Xy"), $dbh,
 
 
 # ------ DBI commit()
-my $warn_commit = [qr/Cannot commit when AutoCommit/, qr/DBI::db commit failed/];
-warnings_like { $dbh->commit() } $warn_commit, "Expect warning like (Cannot commit when AutoCommit is on) DBI::db commit failed: SQL0100 Cannot commit when AutoCommit is on. SQLSTATE=02000";
+my $warn_commit = [qr/commit ineffective/];
+warnings_like { $dbh->commit() } $warn_commit, "Expect warning like (commit ineffective) DBI::db commit failed: SQL0100 Cannot commit when AutoCommit is on. SQLSTATE=02000";
 
 
 # ------ DBI bind_columns()
