@@ -211,71 +211,60 @@ sub _force_retval_rows {
 
 # ------ fake the specified DBI method call
 sub _fake {
-    my $method = shift;                 # file-global method name
-    my $arg    = shift;                 # first method arg
-    my $retval;                         # scalar to return
+  my $method = shift;    # file-global method name
+  my $arg    = shift;    # first method arg
+  my $retval;            # scalar to return
 
-    print "\n$method()" if ($debug);
-    if (defined($arg)) {
-        print " '$arg'" if ($debug);
-    }
-    print "\n" if ($debug);
-    if (_fail($method)) {
-      return;
-    }
+  print "\n$method()" if ($debug);
+  if (defined($arg)) {
+    print " '$arg'" if ($debug);
+  }
+  print "\n" if ($debug);
+  if (_fail($method)) {
+    return;
+  }
 
-    if ($method eq "rows") {
-        $retval = shift;
-        return _force_retval_rows($retval);
-    } elsif ($method =~ m/^fetch/ || $method =~ m/^select/) {
-
-        
-        if ($method eq "fetch"
-         || $method eq "fetchrow"
-         || $method eq "fetchrow_array"
-         || $method eq "selectrow_array") {
-            return ( $wait_for_commit && $commit_rollback_enable ) ? '' : _force_retval_array(@_);
-        }
-        $retval = shift;
-        return ( $wait_for_commit && $commit_rollback_enable ) ? '' : _force_retval_scalar($retval);
-        
-    # } elsif($method =~ m/^bind_param_inout/) {
-        
-    #     my $temp = undef;                # 1 of @bad_params
-    #     my $arrayref = undef;
-    #     # $retval = shift;
-    #     # print "bind_param_inout - retval: " . Dumper($retval) if ($debug);
-
-    #     $arrayref = $arg->fetchrow_arrayref();                                 
-    #     $temp  = $arrayref;
-        
-    #     # push(@{$temp}, 'SQLState') if (!grep /SQLState$/i, @{$temp});
-    #     # push(@{$temp}, 'SQLCode') if (!grep /SQLCode$/i, @{$temp});  
-    #     # push(@$retval, $temp);    
-        
-     
-    #     # foreach my $val (@{$retval->[0]}) {           
-    #     #     $val = '02000' if ($val eq 'SQLState' && !$arrayref);
-    #     #     $val = '00000' if ($val eq 'SQLState' && $arrayref);
-            
-    #     #     $val = '+100' if ($val eq 'SQLCode' && !$arrayref);
-    #     #     $val = '+000' if ($val eq 'SQLCode' && $arrayref); 
-    #     # }
-
-    }    
-
-    if ( defined $method && defined $arg && $method =~ /^(prepare|do|prepare_cached)/i  && $arg =~ /^(select)/i ) {        
-        $commit_rollback_enable = 0;
-        
-    }
-    # handle Insert or Update or Delete DML operations
-    if ( defined $method && defined $arg && $method =~ /^(prepare|do|prepare_cached)/i  && $arg =~ /^(insert|delete|Update)/i ) {        
-        $commit_rollback_enable = 1;
-        
-    }
-    
+  if ($method eq "rows") {
     $retval = shift;
-    return $retval;
+    return _force_retval_rows($retval);
+  } elsif ($method =~ m/^fetch/ || $method =~ m/^select/) {
+
+    if ( $method eq "fetch"
+      || $method eq "fetchrow"
+      || $method eq "fetchrow_array"
+      || $method eq "selectrow_array")
+    {
+      return ($wait_for_commit && $commit_rollback_enable)
+        ? ''
+        : _force_retval_array(@_);
+    }
+    $retval = shift;
+    return ($wait_for_commit && $commit_rollback_enable)
+      ? ''
+      : _force_retval_scalar($retval);
+  }
+
+  if ( defined $method
+    && defined $arg
+    && $method =~ /^(prepare|do|prepare_cached)/i
+    && $arg =~ /^(select)/i)
+  {
+    $commit_rollback_enable = 0;
+
+  }
+
+  # handle Insert or Update or Delete DML operations
+  if ( defined $method
+    && defined $arg
+    && $method =~ /^(prepare|do|prepare_cached)/i
+    && $arg =~ /^(insert|delete|Update)/i)
+  {
+    $commit_rollback_enable = 1;
+
+  }
+
+  $retval = shift;
+  return $retval;
 }
 
 
@@ -339,6 +328,10 @@ sub set_retval_scalar {
    
 }
 
+# ------ called on execute - sets the inout values to those setup by
+# ------ set_inout_hashref.  It is important that inout variables are
+# ------ not populated until execute in case it fails or return before
+# ------ execute is called
 sub handle_inouts {
   my $self = shift;
 
@@ -369,12 +362,8 @@ sub handle_inouts {
 }
 
 
-
-
 # ------ set up scalar inout value(s) for the specified SQL pattern
-
-# usage: set_inout_hash(1, "call func()", { 3 => 42, 5 => "success"})
-
+# usage: set_inout_hashref(1, "call func()", { 3 => 42, 5 => "success"})
 sub set_inout_hashref {
   my $self       = shift;
   my $type       = shift;
@@ -396,8 +385,6 @@ sub set_inout_hashref {
   }
 
   push @{ $inout_hash{$type} }, { "SQL" => $sql, "inouts" => $io_hashref };
-
-
 }
 
 
