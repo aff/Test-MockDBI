@@ -12,7 +12,8 @@
   standard output is impractical at best, like Apache modules.
   IO::String would help in redirecting output to strings.
 
-- Increase the number of DBI methods mocked up.
+- Increase the number of DBI methods mocked up, e.g. bi-directional
+  bind_param_inout.
 
 - Figure out how DBI::quote() should work when mocked-up.
 
