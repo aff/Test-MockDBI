@@ -44,12 +44,12 @@ sub check_printerror {
     $dbh->{RaiseError} = 0;
         
     #success case
-    $dbh->prepare("return value is set with success SQLState and SQLCode");  
+    $dbh->prepare("SQL Query");  
     
     my $error = $dbh->bind_columns()  if $arg == 0;
     
     my $warning_bind = qr/DBI::db bind_columns failed/;
-    warnings_like { $dbh->bind_columns(); } $warning_bind, "Expect warning like DBI::db bind_columns failed: SQL0100 There are no columns for binding. SQLSTATE=02000" if $arg == 1;
+    warnings_like { $dbh->bind_columns(); } $warning_bind, "Expect warning like DBI::db bind_columns failed" if $arg == 1;
         
     my $return = select(STDERR);   
     

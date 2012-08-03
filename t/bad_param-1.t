@@ -13,7 +13,6 @@ use Data::Dumper;
 use Test::Warn;
 
 use File::Spec::Functions;
-#use lib "/home/santosh_shet/svn/smm/smm/trunk/lib/Shared/Test-MockDBI-0.65/lib";    # use local module
 use lib catdir qw ( blib lib );
 use Test::MockDBI;     # what we are testing
 
@@ -44,9 +43,8 @@ isa_ok($select, q{DBI::db}, q{Expect a DBI::db reference});
 is($md->_is_bad_param(2,1,q{jimbo}), 1, q{Expect 1st param to be bad if the value is 'jimbo' in mode 2});
 
 # Bind, execute and fetch
-
 my $warn = qr/DBI::db bind_param failed/;
-warnings_like { $select->bind_param(1, "jimbo", {test => "hi"}) } $warn, "Expect warning like DBI::db bind_param failed: SQL0100 MOCK_DBI: BAD PARAM 1 = 'jimbo'. SQLSTATE=02000";
+warnings_like { $select->bind_param(1, "jimbo", {test => "hi"}) } $warn, "Expect warning like DBI::db bind_param failed";
 
 is($select->execute(), 1, q{Expect 1 (execute 1))});
 

@@ -50,7 +50,7 @@ is($select->bind_param(1, "46062"), 1, q{Expect 1 (bind_param 1))});
 
 
 my $warn = qr/DBI::db bind_param failed/;
-warnings_like { $select->bind_param(2, "noblesville",20) } $warn, "Expect warning like DBI::db bind_param failed: SQL0100 MOCK_DBI: BAD PARAM 2 = 'noblesville'. SQLSTATE=02000";
+warnings_like { $select->bind_param(2, "noblesville",20) } $warn, "Expect warning like DBI::db bind_param failed";
 
 
 is($select->execute(), 1, q{Expect 1 (execute 1))});

@@ -8,7 +8,7 @@ BEGIN { push @ARGV, "--dbitest"; }
 # ------ use/require pragmas
 use strict;      # better compile-time checking
 use warnings;    # better run-time checking
-use Test::More tests => 19;    # advanced testing
+use Test::More tests => 20;    # advanced testing
 use Test::Warn;
 
 # ------ define variables
@@ -33,6 +33,9 @@ is($dbh->disconnect(), 1,
 ok(ref($dbh->prepare("Xy")) eq "DBI::db" && !$dbh->errstr,
  "DBI prepare()");
 
+# ------ DBI prepare() ##
+my $warn_msg = 'DBI::db prepare failed: SQL query is either blank or empty, Please check.';
+warnings_like{ ref $dbh->prepare("") eq "DBI::db" && $dbh->errstr } qr/$warn_msg/, "Expect error like $warn_msg";
 
 # ------ prepare() returns same handle as connect()
 is($dbh->prepare("Xy"), $dbh,
@@ -48,15 +51,14 @@ ok(ref($dbh->prepare_cached("Xy")) eq "DBI::db" && !$dbh->errstr,
 is($dbh->prepare_cached("Xy"), $dbh,
  "prepare_cached() returns same handle as connect()");
 
-
 # ------ DBI commit()
-my $warn_commit = [qr/commit ineffective/];
-warnings_like { $dbh->commit() } $warn_commit, "Expect warning like (commit ineffective) DBI::db commit failed: SQL0100 Cannot commit when AutoCommit is on. SQLSTATE=02000";
+my $warn_commit = [qr/commit ineffective with AutoCommit enabled/];
+warnings_like { $dbh->commit() } $warn_commit, "Expect warning like 'commit ineffective with AutoCommit enabled'";
 
 
 # ------ DBI bind_columns()
 my $warning_bind = qr/DBI::db bind_columns failed/;
-warnings_like { $dbh->bind_columns(); } $warning_bind, "DBI::db bind_columns failed: SQL0100 There are no columns for binding. SQLSTATE=02000";
+warnings_like { $dbh->bind_columns(); } $warning_bind, "Expect warning like 'DBI::db bind_columns failed: There are no columns for binding'.";
 
 
 # ------ DBI bind_param()

@@ -45,7 +45,7 @@ my $debug         = undef;              # Toggle to enable debugging
 my $rollback      = 0;
 my $wait_for_commit = 0;
 my $commit_rollback_enable = 0;
- 
+my $err_head = 'Test-MockDBI error:'; 
 
 
 # ------ convert argument to defined value, use "" if undef argument
@@ -449,7 +449,11 @@ sub handle_errors {
         my $self   = shift;    # my blessed self
         my $errormsg = shift; # the error message
         my $caller = shift || (caller(1))[3]; # the error message
-       
+        print $errormsg if $debug;
+        
+        $self->{Err}    = $DBI::stderr;
+        $self->{Errstr} = $errormsg;
+            
         warn "DBI::db $caller failed: $errormsg" if (defined ($self->{PrintError}) && $self->{PrintError} == 1);
         die  "DBI::db $caller failed: $errormsg" if (defined ($self->{RaiseError}) && $self->{RaiseError} == 1);
       
@@ -486,7 +490,10 @@ if ($type) {
         my $pass = _define(shift);
         my $attr = shift;
       
-        $DBI::stderr =  undef; #2_000_000_000;
+        $DBI::stderr    = 2_000_000_000;
+        $DBI::err       = undef;
+        $DBI::errstr    = undef;
+        
         my %attributes;
         $object = bless({}, "DBI::db");
         
@@ -515,25 +522,29 @@ if ($type) {
      
      errstr =>  sub {
         my $self = shift;
-        $DBI::stderr = "Could not make fake connection\n";
-        return $DBI::stderr if defined $DBI::stderr;
+        return "$err_head Could not make fake connection" if !defined $DBI::errstr;
         return _fake("errstr", $_[0], $errstr{$type});
      },
      err =>  sub {
         my $self = shift;
-        $DBI::stderr = "DB Engine Native Error Code - Could not make fake connection\n";
-        return $DBI::stderr if defined $DBI::stderr;
-        return _fake("errstr", $_[0], $errstr{$type});
+        return $DBI::stderr if !defined $DBI::err;
+        return _fake("err", $_[0], $errstr{$type});
      },
     );
     
     $mock->fake_module( "DBI::db",
      ping =>  sub {
         my $self = shift;
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
         return _fake("ping", $_[1], 1) or handle_errors($self,"Unable to ping", "ping");
      },
      disconnect =>  sub {
         my $self = shift;
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
         $cur_sql = "DISCONNECT";
         $fail_param = 0;
         @bind_columns = ();
@@ -541,46 +552,56 @@ if ($type) {
      },
      errstr =>  sub {
         my $self = shift;
-        $self->{Errstr} = $DBI::stderr;
-        return $self->{Errstr} if defined $self->{Errstr};#DBI->errstr;
+        return $err_head . " " . $self->{Errstr} if defined $self->{Errstr};
         return _fake("errstr", $_[0], $errstr{$type});
      },
      err =>  sub {
         my $self = shift;
-        $self->{Err} = $DBI::stderr;
-        return $self->{Err};# if defined $self->{Err};#DBI->errstr; 
+        return $self->{Err} if defined $self->{Err};#DBI->errstr; 
        return _fake("errstr", $_[0], $errstr{$type});
      },
      prepare =>  sub {
         my $self =shift;
         $cur_sql = shift;
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
         $cur_sql = _define($cur_sql);
         $fail_param = 0;
         @bind_columns = ();
         
         unless ( $cur_sql =~ /\w+/ ) {
-            $DBI::stderr = "Could not prepare, Please check the SQL query";
-            handle_errors($self,"Could not prepare", "prepare");
+            $self->{Err}    = $DBI::stderr;
+            $self->{Errstr} = "SQL query is either blank or empty, Please check.";
+            handle_errors($self,$self->{Errstr}, "prepare");
         }
         
         
         return _fake("prepare", $cur_sql, $object);
      },
      prepare_cached =>  sub {
+        my $self =shift;
+        $cur_sql = _define($_[0]);
         
-        $cur_sql = _define($_[1]);
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
         $fail_param = 0;
         @bind_columns = ();
         
         unless ( $cur_sql =~ /\w+/ ) {
-            $DBI::stderr = "Could not prepare, Please check the SQL query";
-            handle_errors($object,"Could not prepare", "prepare_cached");
+            $self->{Err}    = $DBI::stderr;
+            $self->{Errstr} = "SQL query is either blank or empty, Please check.";
+            handle_errors($self,$self->{Errstr}, "prepare_cached");
         }
         
         return _fake("prepare_cached", $_[1], $object);
      },
      commit =>  sub {
         my $self  = shift;
+        
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
 
 		warn("commit ineffective with AutoCommit enabled")  
 		  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 1);
@@ -593,9 +614,15 @@ if ($type) {
         return _fake("commit", $_[0], 1) or handle_errors($object,"Commit failed", "commit");
      },
      bind_columns =>  sub {
-        shift;
+        my $self = shift;
+        
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+
         unless(scalar(@_)) {
-            handle_errors($object,"There are no columns for binding", "bind_columns");
+            $self->{Err}    = $DBI::stderr;
+            $self->{Errstr} = "There are no columns for binding";
+            handle_errors($self,$self->{Errstr}, "bind_columns");
         }
         @bind_columns = @_;        
         return _fake("bind_columns", $_[0], 1) or handle_errors($object,"Binding failed", "bind_columns");
@@ -609,6 +636,9 @@ if ($type) {
         my $value        = shift;             # parameter value
         my $attr_or_type = _define(shift);    # attributes or type
         my $bad_param    = "";                # 1 of @bad_params
+
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
 
         print "\nbind_param()\n" if ($debug);
         print "parm $param, value " if ($debug);
@@ -629,8 +659,11 @@ if ($type) {
             if ($bad_param->[0] == $type
              && $bad_param->[1] == $param
              && $bad_param->[2] eq $value) {
-                print "MOCK_DBI: BAD PARAM $param = '$value'\n" if ($debug);
-                handle_errors($object,"MOCK_DBI: BAD PARAM $param = '$value'", "bind_param");
+                
+                $self->{Err}    = $DBI::stderr;
+                $self->{Errstr} = "Check paramters $param = '$value'\n";
+                handle_errors($self, $self->{Errstr}, "bind_param");
+                
                 $fail_param = 1;
                 return -1;  # Indicate that param is bad
             }
@@ -645,12 +678,16 @@ if ($type) {
         my $ref_value   = shift;             # Reference of bind value
         
         my $max_len     = _define(shift);    # Min. amount of memory to allocate to bind value
+
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
         
         if ( ref($ref_value) ne 'SCALAR' ) {
 		    print "ref(ref_value) is " . ref($ref_value) . "\n" if ($debug);
-
-            $DBI::stderr = "bind_param_inout needs a reference to a scalar value";
-            handle_errors($self,"bind_param_inout needs a reference to a scalar value", "bind_param_inout");
+            
+            $self->{Err}    = $DBI::stderr;
+            $self->{Errstr} = "bind_param_inout needs a reference to a scalar value";
+            handle_errors($self,$self->{Errstr}, "bind_param_inout");
             return;
         }
 
@@ -667,14 +704,23 @@ if ($type) {
      do =>  sub {
         my $self        = shift;             # my blessed self
         my $params       = _define(shift);    # parameter number
+
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+
         unless ( $params =~ /\w+/) {
-            $DBI::stderr = "Expect SQL query";
-            handle_errors($self,"Expect SQL query", "do");
+            $self->{Err}    = $DBI::stderr;
+            $self->{Errstr} = "Expect SQL query";
+            handle_errors($self,$self->{Errstr}, "do");
             return;
         }
         return _fake("do", $_[1], 1);
      },
      execute =>  sub {
+        my $self = shift;
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
 	    return unless handle_inouts();
         return _fake("execute", $_[1], 1) or handle_errors($object,"Execute failed", "execute");
      },
@@ -711,20 +757,27 @@ if ($type) {
         $self->{AutoCommit} = 0;
         $wait_for_commit = 1;
         $self->{BegunWork} = 1;
+        
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+
         return _fake("begin_work", $_[1], 0) or handle_errors($self,"Begin work unable to set", "begin_work");
      },
      rollback => sub {
-        my $self  = shift;       
+        my $self  = shift;
+
+        # Reset both errors as per DBI Rule
+        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
+        
         if ( $self->{AutoCommit} == 1){
-                $DBI::stderr = "rollback ineffective with AutoCommit enabled";
-                warn $DBI::stderr;
+                warn "rollback ineffective with AutoCommit enabled";
         }
         if ( $commit_rollback_enable ){
             $rollback = 1;
             $self->{AutoCommit} = 1 if ($self->{BegunWork} == 1);
             $self->{BegunWork} = 0;           
         };
-         return _fake("rollback", $_[0], 1) or handle_errors($self,"Rollback failed", "rollback");
+        return _fake("rollback", $_[0], 1) or handle_errors($self,"Rollback failed", "rollback");
      },
     );
     $mock->fake_new("DBI");

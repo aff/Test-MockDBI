@@ -10,7 +10,7 @@ BEGIN { push @ARGV, "--dbitest=2"; }
 use strict;      # better compile-time checking
 use warnings;    # better run-time checking
 
-use Test::More tests => 34;    # advanced testing
+use Test::More tests => 35;    # advanced testing
 use File::Spec::Functions;
 use lib catdir qw ( blib lib );            # use local module
 use Test::MockDBI;             # what we are testing
@@ -18,8 +18,8 @@ use Test::Warn;
 
 # ------ define variables
 my $dbh = "";				# mock DBI database handle
-my $md					# Test::MockDBI instance
- = Test::MockDBI::get_instance();
+my $md	= Test::MockDBI::get_instance();# Test::MockDBI instance
+ 
 
 
 # ------ make all methods bad
@@ -71,6 +71,7 @@ is($dbh->finish(), undef,
 # ------ DBI prepare_cached()
 
 my $warn = qr/DBI::db prepare_cached failed/;
+$dbh->{PrintError} = 1;
 warnings_like { $dbh->prepare_cached() } $warn, "Expect warning like DBI::db prepare_cached failed";
 
 
@@ -122,9 +123,9 @@ is($dbh->fetch(), undef,
 
 
 # ------ DBI do()
-is($dbh->do(), undef,
- "DBI do()");
-
+is($dbh->do('Select * from us'), undef, "DBI do()");
+$warnings = 'DBI::db do failed: Expect SQL query';
+warnings_like { $dbh->do() } qr/$warnings/, "Expect warning like $warnings";
 
 # ------ DBI rows()
 is($dbh->rows(), undef,

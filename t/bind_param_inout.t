@@ -9,7 +9,7 @@ use warnings;      # better run-time checking
 use Test::More;    # advanced testing
 use Data::Dumper;
 use Test::Warn;
-
+use lib '/home/smm/test_mockdbi/Test-MockDBI/lib';
 use File::Spec::Functions;
 use lib catdir qw ( blib lib );    # use local module
 use Test::MockDBI;                 # what we are testing

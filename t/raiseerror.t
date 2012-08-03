@@ -11,7 +11,6 @@ use warnings;          # better run-time checking
 use Test::More;        # advanced testing
 use Data::Dumper;
 
-
 use File::Spec::Functions;
 use lib catdir qw ( blib lib );    # use local module
 use Test::MockDBI;     # what we are testing
@@ -39,23 +38,23 @@ done_testing();
 
 sub check_raiseerror {    
    
-    my $arg = shift;
+    my $PrintError = shift;
     $dbh->{PrintError} = 0;
-    $dbh->{RaiseError} = $arg;
+    $dbh->{RaiseError} = $PrintError;
         
     #success case
-    $dbh->prepare("return value is set with success SQLState and SQLCode");  
+    $dbh->prepare("SQL Query");  
     my $return = 1;
     my $error;
     eval {
         $error = $dbh->bind_columns();
         $return = 0;
     }
-    or do {
-       
-       print "Expect error like ".$@;
-       $arg == 1 ? ok($return == 1, "The error raised") : ok($return == 0, "No error raised");
-       
+    or do {       
+       #print "Expect error like [".$@ ."]\n";
+       my $error =  qr/^DBI::db bind_columns failed/;
+       ok($return == 0, "No error raised") if $PrintError == 0;
+       like ($@, $error, "Expect error 'DBI::db bind_columns failed: There are no columns for binding'") if $PrintError == 1 ;
     };
     
     
