@@ -27,42 +27,22 @@ isa_ok($md, q{Test::MockDBI}, q{Expect a Test::MockDBI reference});
 $dbh = DBI->connect("DBD::DB","testuser","testpwd");
 isa_ok($dbh, q{DBI::db}, q{Expect a DBI::db reference});
 
-subtest "RaiseError" => sub {
-    
-  subtest "With RaiseError as 0" => sub { check_raiseerror(0); };
-  subtest "With RaiseError as 1" => sub { check_raiseerror(1); };  
-  
-done_testing();
+$dbh->{RaiseError} = 1;
+$dbh->{PrintError} = 0;
+$dbh->{AutoCommit} = 0;
 
+subtest "RaiseError" => sub{
+  
+  my @methods = qw( commit rollback bind_columns);
+  
+  foreach my $method ( @methods ){
+    my $retval = undef;
+    eval{
+      $retval = $dbh->$method();
+    };
+    ok($@, '$@ is set for method ' . $method);
+  }
+  done_testing();
 };
 
-sub check_raiseerror {    
-   
-    my $PrintError = shift;
-    $dbh->{PrintError} = 0;
-    $dbh->{RaiseError} = $PrintError;
-        
-    #success case
-    $dbh->prepare("SQL Query");  
-    my $return = 1;
-    my $error;
-    eval {
-        $error = $dbh->bind_columns();
-        $return = 0;
-    }
-    or do {       
-       #print "Expect error like [".$@ ."]\n";
-       my $error =  qr/^DBI::db bind_columns failed/;
-       ok($return == 0, "No error raised") if $PrintError == 0;
-       like ($@, $error, "Expect error 'DBI::db bind_columns failed: There are no columns for binding'") if $PrintError == 1 ;
-    };
-    
-    
-    $dbh->finish();
-
-}
-
-
 done_testing();
-
-
