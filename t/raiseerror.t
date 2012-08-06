@@ -11,7 +11,6 @@ use warnings;          # better run-time checking
 use Test::More;        # advanced testing
 use Data::Dumper;
 
-
 use File::Spec::Functions;
 use lib catdir qw ( blib lib );    # use local module
 use Test::MockDBI;     # what we are testing
@@ -28,42 +27,22 @@ isa_ok($md, q{Test::MockDBI}, q{Expect a Test::MockDBI reference});
 $dbh = DBI->connect("DBD::DB","testuser","testpwd");
 isa_ok($dbh, q{DBI::db}, q{Expect a DBI::db reference});
 
-subtest "RaiseError" => sub {
-    
-  subtest "With RaiseError as 0" => sub { check_raiseerror(0); };
-  subtest "With RaiseError as 1" => sub { check_raiseerror(1); };  
-  
-done_testing();
+$dbh->{RaiseError} = 1;
+$dbh->{PrintError} = 0;
+$dbh->{AutoCommit} = 0;
 
+subtest "RaiseError" => sub{
+  
+  my @methods = qw( commit rollback bind_columns);
+  
+  foreach my $method ( @methods ){
+    my $retval = undef;
+    eval{
+      $retval = $dbh->$method();
+    };
+    ok($@, '$@ is set for method ' . $method);
+  }
+  done_testing();
 };
 
-sub check_raiseerror {    
-   
-    my $arg = shift;
-    $dbh->{PrintError} = 0;
-    $dbh->{RaiseError} = $arg;
-        
-    #success case
-    $dbh->prepare("return value is set with success SQLState and SQLCode");  
-    my $return = 1;
-    my $error;
-    eval {
-        $error = $dbh->bind_columns();
-        $return = 0;
-    }
-    or do {
-       
-       print "Expect error like ".$@;
-       $arg == 1 ? ok($return == 1, "The error raised") : ok($return == 0, "No error raised");
-       
-    };
-    
-    
-    $dbh->finish();
-
-}
-
-
 done_testing();
-
-
