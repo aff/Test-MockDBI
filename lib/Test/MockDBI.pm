@@ -445,18 +445,23 @@ sub _is_bad_param {
   return;
 }
 
+# Returns always undef since handle_errors is only called when _fake
+# returns undef.
 sub handle_errors {
-        my $self   = shift;    # my blessed self
-        my $errormsg = shift; # the error message
-        my $caller = shift || (caller(1))[3]; # the error message
-        print $errormsg if $debug;
-        
-        $self->{Err}    = $DBI::stderr;
-        $self->{Errstr} = $errormsg;
-            
-        warn "DBI::db $caller failed: $errormsg" if (defined ($self->{PrintError}) && $self->{PrintError} == 1);
-        die  "DBI::db $caller failed: $errormsg" if (defined ($self->{RaiseError}) && $self->{RaiseError} == 1);
-      
+  my $self     = shift;                      # my blessed self
+  my $errormsg = shift;                      # the error message
+  my $caller   = shift || (caller(1))[3];    # the error message
+  print $errormsg if $debug;
+
+  $self->{Err}    = $DBI::stderr;
+  $self->{Errstr} = $errormsg;
+
+  warn "DBI::db $caller failed: $errormsg"
+    if (defined($self->{PrintError}) && $self->{PrintError} == 1);
+  die "DBI::db $caller failed: $errormsg"
+    if (defined($self->{RaiseError}) && $self->{RaiseError} == 1);
+
+  return;  # See note above 
 }
 
 #
@@ -517,7 +522,7 @@ if ($type) {
         $fail_param = 0;
         @bind_columns = ();
        
-        return _fake("connect", $cur_sql, $object) or handle_errors($object,"$self connect ($dsn) failed", "connect");
+        return _fake("connect", $cur_sql, $object) || handle_errors($object,"$self connect ($dsn) failed", "connect");
      },
      
      errstr =>  sub {
@@ -538,7 +543,7 @@ if ($type) {
         # Reset both errors as per DBI Rule
         ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
         
-        return _fake("ping", $_[1], 1) or handle_errors($self,"Unable to ping", "ping");
+        return _fake("ping", $_[1], 1) || handle_errors($self,"Unable to ping", "ping");
      },
      disconnect =>  sub {
         my $self = shift;
@@ -548,7 +553,7 @@ if ($type) {
         $cur_sql = "DISCONNECT";
         $fail_param = 0;
         @bind_columns = ();
-        return _fake("disconnect", $_[1], 1) or handle_errors($self,"Unable to ping", "disconnect");
+        return _fake("disconnect", $_[1], 1) || handle_errors($self,"Unable to disconnect", "disconnect");
      },
      errstr =>  sub {
         my $self = shift;
@@ -611,7 +616,8 @@ if ($type) {
             $self->{AutoCommit} = 1 if ($self->{BegunWork} == 1);
             $self->{BegunWork} = 0;           
         }
-        return _fake("commit", $_[0], 1) or handle_errors($object,"Commit failed", "commit");
+        return _fake("commit", $_[0], 1) || handle_errors($object,"Commit failed", "commit");
+      
      },
      bind_columns =>  sub {
         my $self = shift;
@@ -625,7 +631,7 @@ if ($type) {
             handle_errors($self,$self->{Errstr}, "bind_columns");
         }
         @bind_columns = @_;        
-        return _fake("bind_columns", $_[0], 1) or handle_errors($object,"Binding failed", "bind_columns");
+        return _fake("bind_columns", $_[0], 1) || handle_errors($object,"Binding failed", "bind_columns");
      },
      bind_param => sub {
         # Return 1 if param bound was good, otherwise -1 (still true,
@@ -698,7 +704,7 @@ if ($type) {
 		  }
 	    }
         
-        return _fake("bind_param_inout", $self, $ref_value) or handle_errors($self,"Binding failed", "bind_param_inout");
+        return _fake("bind_param_inout", $self, $ref_value) || handle_errors($self,"Binding failed", "bind_param_inout");
         
      },
      do =>  sub {
@@ -722,35 +728,35 @@ if ($type) {
         ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
         
 	    return unless handle_inouts();
-        return _fake("execute", $_[1], 1) or handle_errors($object,"Execute failed", "execute");
+        return _fake("execute", $_[1], 1) || handle_errors($object,"Execute failed", "execute");
      },
      finish =>  sub {
         $fail_param = 0;
-        return _fake("finish", $_[1], 1) or handle_errors($object,"Finish failed", "finish");
+        return _fake("finish", $_[1], 1) || handle_errors($object,"Finish failed", "finish");
      },
      fetchall_arrayref =>  sub {
-        return _fake("fetchall_arrayref", $_[1], undef) or handle_errors($object,"Fetch all array reference failed", "fetchall_arrayref");
+        return _fake("fetchall_arrayref", $_[1], undef) || handle_errors($object,"Fetch all array reference failed", "fetchall_arrayref");
      },
      fetchrow_arrayref =>  sub {
-        return _fake("fetchrow_arrayref", $_[1], undef) or handle_errors($object,"Fetch row array reference failed", "fetchrow_arrayref");
+        return _fake("fetchrow_arrayref", $_[1], undef) || handle_errors($object,"Fetch row array reference failed", "fetchrow_arrayref");
      },
      fetchrow_hashref =>  sub {
-        return _fake("fetchrow_hashref", $_[1], undef) or handle_errors($object,"Fetch row hash reference failed", "fetchrow_hashref");
+        return _fake("fetchrow_hashref", $_[1], undef) || handle_errors($object,"Fetch row hash reference failed", "fetchrow_hashref");
      },
      fetchall_hashref =>  sub {
-        return _fake("fetchall_hashref", $_[1], undef) or handle_errors($object,"Fetch all hash reference failed", "fetchall_hashref");
+        return _fake("fetchall_hashref", $_[1], undef) || handle_errors($object,"Fetch all hash reference failed", "fetchall_hashref");
      },
      fetchrow_array =>  sub {
-        return _fake("fetchrow_array", $_[1]) or handle_errors($object,"Fetch row array failed", "fetchrow_array");
+        return _fake("fetchrow_array", $_[1]) || handle_errors($object,"Fetch row array failed", "fetchrow_array");
      },
      fetchrow =>  sub {
-        return _fake("fetchrow", $_[1]) or handle_errors($object,"Fetch row failed", "fetchrow");
+        return _fake("fetchrow", $_[1]) || handle_errors($object,"Fetch row failed", "fetchrow");
      },
      fetch =>  sub {
-        return _fake("fetch", $_[1]) or handle_errors($object,"Fetch failed", "fetch");
+        return _fake("fetch", $_[1]) || handle_errors($object,"Fetch failed", "fetch");
      },
      rows =>  sub {
-        return _fake("rows", $_[1], 0) or handle_errors($object,"Rows failed", "rows");
+        return _fake("rows", $_[1], 0) || handle_errors($object,"Rows failed", "rows");
      },
      begin_work => sub {
         my $self = shift;
@@ -761,7 +767,7 @@ if ($type) {
         # Reset both errors as per DBI Rule
         ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
 
-        return _fake("begin_work", $_[1], 0) or handle_errors($self,"Begin work unable to set", "begin_work");
+        return _fake("begin_work", $_[1], 0) || handle_errors($self,"Begin work unable to set", "begin_work");
      },
      rollback => sub {
         my $self  = shift;
@@ -777,7 +783,7 @@ if ($type) {
             $self->{AutoCommit} = 1 if ($self->{BegunWork} == 1);
             $self->{BegunWork} = 0;           
         };
-        return _fake("rollback", $_[0], 1) or handle_errors($self,"Rollback failed", "rollback");
+        return _fake("rollback", $_[0], 1) || handle_errors($self,"Rollback failed", "rollback");
      },
     );
     $mock->fake_new("DBI");
