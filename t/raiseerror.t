@@ -3,7 +3,7 @@
 # $Id: $
 
 # ------ enable testing mock DBI
-BEGIN { push @ARGV, "--dbitest"; }
+BEGIN { push @ARGV, "--dbitest=1"; }
 
 # ------ use/require pragmas
 use strict;            # better compile-time checking
@@ -31,16 +31,34 @@ $dbh->{RaiseError} = 1;
 $dbh->{PrintError} = 0;
 $dbh->{AutoCommit} = 0;
 
-subtest "RaiseError" => sub{
+# -- methods that are "bad" should fail
+subtest "RaiseError bad" => sub{
   
-  my @methods = qw( commit rollback bind_columns);
+  my @methods = qw( commit rollback );
+  
+  foreach my $method ( @methods ){
+    my $retval = undef;
+    $md->bad_method($method, 1, ".*");  # set to fail
+
+    eval{
+      $retval = $dbh->$method();
+    };
+    ok($@, '$@ is set for method ' . $method);
+  }
+  done_testing();
+};
+
+# -- methods that require argument(s) should fail without any
+subtest "RaiseError missing arguments" => sub{
+  
+  my @methods = qw( bind_columns bind_param bind_param_inout );
   
   foreach my $method ( @methods ){
     my $retval = undef;
     eval{
       $retval = $dbh->$method();
     };
-    ok($@, '$@ is set for method ' . $method);
+    ok($@, '$@ is set for method ' . $method) && diag($@);
   }
   done_testing();
 };
