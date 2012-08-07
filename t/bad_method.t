@@ -80,10 +80,13 @@ is($dbh->commit(), undef,
  "DBI commit()");
 
 
-# ------ DBI bind_columns()
-my $warnings = qr/DBI::db bind_columns failed/;
-warnings_like { $dbh->bind_columns() } $warnings, "Expect warning like DBI::db bind_columns failed";
-
+# ------ DBI bind_columns() throws two warnings - must for both
+my $warnings = [
+  qr/bind_columns failed: There are no columns for binding/,
+  qr/bind_columns failed: Binding failed/
+];
+warnings_like { $dbh->bind_columns() } $warnings,
+  "Expect warning like DBI::db bind_columns failed";
 
 
 # ------ DBI bind_param()
