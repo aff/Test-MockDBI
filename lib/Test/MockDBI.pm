@@ -188,11 +188,10 @@ sub bad_param{
   my $p_value   = undef;
   my $sql       = undef;
   
-  if(ref($self) ne 'Test::MockDBI'){
+  if(scalar(@_) == 3){
     warn "You have called bad_param in an deprecated way. Please consult the documentation\n";
-    # $self should now contain the $dbi_testing_type so we just throw that away
-    $self = $instance;
-    
+    #Throw away $dbi_testing_type as we dont use it anymoer
+    shift;
     #Throw away $p_num as we dont use it anymore
     shift;
   }
@@ -384,7 +383,8 @@ sub _set_dbi_err_errstr{
 =cut
 
 sub _set_fake_dbi_err_errstr{
-  my ($self, $obj, $sql) = @_;
+  my ($self, $obj) = @_;
+  my $sql = $obj->{Statement};
 
   #This should be refactored out in a helper method
   my @caller = caller(1);
@@ -403,7 +403,7 @@ sub _set_fake_dbi_err_errstr{
       #This is done to be complient with the regex functionality in the earlier versions
       #of Test::MockDBI
       if( $sql =~ m/\Q$key\E/ms){
-        $self->_set_dbi_err_errstr(
+        $self->_set_dbi_err_errstr($obj,
           err => $self->{methods}->{$method}->{sqls}->{$key}->{err},
           errstr => $self->{methods}->{$method}->{sqls}->{$key}->{errstr}
         );

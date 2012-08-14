@@ -18,7 +18,7 @@ sub _dbi_prepare{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($statement);
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $statement);
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -111,7 +111,7 @@ sub _dbi_prepare_cached{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($statement);
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $statement);
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -146,7 +146,7 @@ sub _dbi_do{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($statement);
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $statement);
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -168,7 +168,7 @@ sub _dbi_commit{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $self->{Statement});
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -187,7 +187,7 @@ sub _dbi_rollback{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $self->{Statement});
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -207,7 +207,7 @@ sub _dbi_begin_work{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self, $self->{Statement});
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -226,10 +226,16 @@ sub _dbi_ping{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval();
-  if($status && ref($retval) eq 'CODE'){
-    return $retval->($self);
-  }
-  return ($status) ? $retval : 1;
+  if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
+    if(ref($retval) eq 'CODE'){
+      return $retval->($self);
+    }
+    return $retval;
+  }  
+
+  return 1;
 }
 
 sub _dbi_disconnect{
@@ -239,12 +245,14 @@ sub _dbi_disconnect{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval();
-  
-  if($status && ref($retval) eq 'CODE'){
-    return $retval->($self);
-  }
-  
-  return $retval if $status;
+  if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
+    if(ref($retval) eq 'CODE'){
+      return $retval->($self);
+    }
+    return $retval;
+  }   
 
   #Set the Active flag to false for all childhandlers
   foreach my $ch ( @{ $self->{ChildHandlers} } ){

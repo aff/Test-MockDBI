@@ -7,29 +7,64 @@ use_ok('Test::MockDBI');
 
 my $instance = Test::MockDBI::get_instance();
 
+my %methods = (
+  'DBI::db' => ['prepare', 'prepare_cached', 'do', 'commit', 'rollback', 'begin_work', 'ping', 'disconnect'],
+  'DBI::st' => ['bind_param', 'bind_param_inout', 'execute', 'fetchrow_arrayref', 'fetchrow_array', 'fetchrow_hashref',
+                'fetchall_arrayref', 'finish', 'rows']
+);
+
+my $dbh = DBI->connect('DBI:mydb:somedb', 'user1', 'password1');
+my $sth = $dbh->prepare('SELECT something FROM sometable');
+
+
 {
-  #Setting a fake retval for the prepare method
-  $instance->set_retval( method => 'prepare', retval => undef);
+  #Testing that we can set the returnvalue to plain undef
+  #Testing the databasehandler
+  foreach my $method ( @{ $methods{'DBI::db'} } ){
+    #Setting a fake retval for the prepare method
+    $instance->set_retval( method => $method, retval => undef );
+    my $retval = $dbh->$method();
+    ok(!$retval, $method . ' returned undef');
+    
+  }
   
-  
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
-  
-  my $sth = $dbh->prepare('SELECT * FROM sometable');
-  
-  ok(!$sth, '$dbh->prepare returned undef');
+  #Testing the statementhandler
+  foreach my $method ( @{ $methods{'DBI::st'} } ){
+    #Setting a fake retval for the prepare method
+    $instance->set_retval( method => $method, retval => undef);
+    my $retval = $sth->$method();
+    ok(!$retval, $method . ' returned undef');
+    
+  }
+  #Resetting the mock instance
+  $instance->reset();
 }
 {
-  #Setting a fake retval with custom DBI err & errstr
-  my %args = ( method => 'prepare', retval => undef, err => 99, errstr => 'Custom DBI error' );
-  $instance->set_retval( %args );
+  #Testing that we can set the returnvalue and custom err and errstr
   
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
   
-  my $sth = $dbh->prepare('SELECT * FROM sometable');
+  #Testing the databasehandler
+  foreach my $method ( @{ $methods{'DBI::db'} } ){
+    my %args = ( method => $method, retval => undef, err => 99, errstr => 'Custom DBI error' );
+    #Setting a fake retval for the prepare method
+    $instance->set_retval( %args );
+    my $retval = $dbh->$method();
+    ok(!$retval, $method . ' returned undef');
+    cmp_ok($dbh->err, '==', $args{err}, '$sth->err is ' . $args{err});
+    cmp_ok($dbh->errstr, 'eq', $args{errstr}, '$sth->errstr is ' . $args{errstr});    
+  }
   
-  ok(!$sth, '$dbh->prepare returned undef');
-  cmp_ok($dbh->err, '==', $args{err}, '$sth->err is ' . $args{err});
-  cmp_ok($dbh->errstr, 'eq', $args{errstr}, '$sth->errstr is ' . $args{errstr});
+  #Testing the statementhandler
+  foreach my $method ( @{ $methods{'DBI::st'} } ){
+    my %args = ( method => $method, retval => undef, err => 99, errstr => 'Custom DBI error' );
+    #Setting a fake retval for the prepare method
+    $instance->set_retval( %args );
+    my $retval = $sth->$method();
+    ok(!$retval, $method . ' returned undef');
+    cmp_ok($sth->err, '==', $args{err}, '$sth->err is ' . $args{err});
+    cmp_ok($sth->errstr, 'eq', $args{errstr}, '$sth->errstr is ' . $args{errstr});
+  }
+  $instance->reset();
 }
 {
   #Setting a fake retval should fail if no method is provided

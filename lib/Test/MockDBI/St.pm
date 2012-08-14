@@ -21,7 +21,7 @@ sub _dbi_bind_param{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self->{Statement});
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -73,7 +73,7 @@ sub _dbi_bind_param_inout{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
-    $mockdbi->_set_fake_dbi_err_errstr($self->{Statement});
+    $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if( ref($retval) eq 'CODE'){
       return $retval->($self);
@@ -100,8 +100,6 @@ sub _dbi_bind_param_inout{
   }
   
   #Verify that the bind_param attribute is a valid one
-  
-  #Rewrite this to resemble the DBI behaviour
   if($attr && $attr =~ m/^\d+$/){
     $self->{ParamTypes}->{$p_num} = { TYPE => $attr};
   }elsif($attr){
@@ -137,13 +135,14 @@ sub _dbi_execute{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
-  
   if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
     }
     return $retval;
-  }
+  }    
   
   #Copied from the DBI documentation:
   # Active
@@ -181,10 +180,14 @@ sub _dbi_fetchrow_arrayref{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
-
-  if(ref($retval) eq 'CODE'){
-    return $retval->($self);
-  }
+  if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
+    if(ref($retval) eq 'CODE'){
+      return $retval->($self);
+    }
+  }  
+  
   #The resultset should be an array of hashes
   if(ref($retval) ne 'ARRAY'){
     #Should implement support for RaiseError and PrintError
@@ -216,9 +219,12 @@ sub _dbi_fetchrow_hashref{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
-  
-  if(ref($retval) eq 'CODE'){
-    return $retval->($self);
+  if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
+    if(ref($retval) eq 'CODE'){
+      return $retval->($self);
+    }
   }  
   
   #The resultset should be an array of hashes
@@ -245,11 +251,14 @@ sub _dbi_fetchall_arrayref{
   
   $mockdbi->_clear_dbi_err_errstr($self);
   
-  my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement}); 
-
-  if(ref($retval) eq 'CODE'){
-    return $retval->($self);
-  }
+  my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
+  if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
+    if(ref($retval) eq 'CODE'){
+      return $retval->($self);
+    }
+  }  
 
   #The resultset should be an array of hashes
   if(ref($retval) ne 'ARRAY'){
@@ -267,13 +276,14 @@ sub _dbi_finish{
   $mockdbi->_clear_dbi_err_errstr($self);
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
-  
   if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
     }
     return $retval;
-  }
+  }  
   
   $self->{Active} = undef;
   #Update the parent activekids flag
@@ -289,11 +299,13 @@ sub _dbi_rows{
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
+    $mockdbi->_set_fake_dbi_err_errstr($self);
+    
     if(ref($retval) eq 'CODE'){
       return $retval->($self);
     }
     return $retval;
-  }
+  }  
   
   return -1;
 }

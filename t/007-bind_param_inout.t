@@ -54,4 +54,51 @@ isa_ok($dbh, 'DBI::db');
   cmp_ok($inout2, '==', 20, '$inout2 == 20');
   
 }
+{
+  #Bind param should die if it has to few parameters
+  my $sth = $dbh->prepare('CALL something(?, ?)');
+  
+  eval{
+    #No parameters provided. DBI dies
+    $sth->bind_param_inout();
+  };
+  ok($@, '$@ is set');
+  like($@, qr/bind_param_inout: invalid number of arguments/, "Correct error thrown");
+}
+{
+  #bind_param_inout should return undef if $p_num is a non digit
+  my $sth = $dbh->prepare('CALL something(?, ?)');
+  
+  my $inout = 'something';
+  
+  #$p_num is a non digit
+  ok(!$sth->bind_param_inout('asdf', \$inout), 'Return undef on non-digit $p_num');
+  cmp_ok($sth->err, '==', 16, '$sth->err is set to 16');
+  cmp_ok($sth->errstr, 'eq', 'Illegal parameter number', '$sth->errstr is set to \'llegal parameter number\'');
+}
+{
+  #bind_param_inout should return undef if we try to bind to many values
+  my $sth = $dbh->prepare('CALL something(?, ?)');
+  
+  my $inout1 = 'something';
+  my $inout2 = 'somethingelse';
+  my $inout3 = 'somethingelseelse';
+  
+  #$p_num is a non digit
+  ok($sth->bind_param_inout(1, \$inout1), 'bind_param_inout #1');
+  ok($sth->bind_param_inout(2, \$inout2), 'bind_param_inout #2');
+  ok(!$sth->bind_param_inout(3, \$inout3), 'bind_param_inout #3 fails');
+  cmp_ok($sth->err, '==', 16, '$sth->err is set to 16');
+  cmp_ok($sth->errstr, 'eq', 'Illegal parameter number', '$sth->errstr is set to \'llegal parameter number\'');  
+}
+{
+  #The bind_param_inout $bind_value must be a scalar ref
+  my $sth = $dbh->prepare('CALL something(?, ?)');
+  eval{
+    $sth->bind_param_inout(1, 'something');
+  };
+  ok($@, '$@ is set - dies on bind_param_inout not being scalar ref');
+  like($@, qr/bind_param_inout needs a reference to a scalar value/, "Error is bind_param_inout needs a reference to a scalar value")
+  
+}
 done_testing();
