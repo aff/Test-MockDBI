@@ -46,7 +46,8 @@ WriteMakefile(
     'File::Spec::Functions' => 0,
     'Test::Warn'            => 0,
 		'Scalar::Util'					=> 0,
-		'Carp'									=> 0
+		'Carp'									=> 0,
+		'Clone'									=> 0
   },
   dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
   clean => { FILES    => 'Test-MockDBI-*' },

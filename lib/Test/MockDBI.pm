@@ -1,5 +1,6 @@
 package Test::MockDBI;
 
+use 5.008;                              # minimum Perl is V5.8.0
 use strict;
 use warnings;
 use Carp;
@@ -7,11 +8,13 @@ use Clone;
 use Test::MockObject::Extends;
 use Scalar::Util;
 
+our $VERSION = '0.70';
+
 my $instance = undef;
 
 =head1 NAME
   
-  Test::MockDBI - Mocked DBI interface for testing purposes
+Test::MockDBI - Mocked DBI interface for testing purposes
 
 =head1 SYNOPSIS
 
@@ -560,6 +563,10 @@ sub get_instance{
   return $instance;
 }
 
+=back
+
+=cut
+
 ####################################
 #
 # Mocked DBI API
@@ -746,5 +753,27 @@ sub set_errstr{
   warn "set_errstr is deprecated. Please use $instance->set_retval instead \n";
   return;
 }
+
+
+=head1 AUTHOR
+
+Mark Leighton Fisher,
+E<lt>mark-fisher@fisherscreek.comE<gt>
+
+Minor modifications (version 0.62 onwards) by
+Andreas Faafeng
+E<lt>aff@cpan.orgE<gt>
+
+=head1 COPYRIGHT
+
+Copyright 2004, Fisher's Creek Consulting, LLC.  Copyright
+2004, DeepData, Inc.
+
+=head1 LICENSE
+
+This code is released under the same licenses as Perl
+itself.
+
+=cut
 
 1;
