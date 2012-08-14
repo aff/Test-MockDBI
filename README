@@ -1,4 +1,4 @@
-Test/MockDBI version 0.66
+Test/MockDBI version 0.70
 =========================
 
 Test::MockDBI lets you test DBI interfaces by mocking-up the
@@ -9,18 +9,6 @@ Mock DBI interfaces like Test::MockDBI improve upon DBI
 tracing facilities like DBI::trace() and DBD::Mock, as you
 can modify the behavior of the DBI at the interface in
 (nearly) any way you choose.
-
-Once you "use Test::MockDBI", invoking Test::MockDBI
-instead of the regular DBI is a matter of supplying a first
-command-line argument of the form "--dbitest[=TYPE]" to
-your program (or using Test::MockDBI::set_dbi_test_type()).
-TYPE is the MockDBI testing type, which is a simple integer
-number (/^\d+$/).  The testing type is set to 1 (one)
-if TYPE is missing.  A testing type of 0 (zero) turns off
-Test::MockDBI, leaving your program to use DBI as normal.
-This makes using Test::MockDBI transparent to users --
-they never know that Test::MockDBI was used unless you
-tell them about it.
 
 There are 3 basic ways to change DBI behavior with
 Test::MockDBI:
@@ -33,14 +21,9 @@ Test::MockDBI:
         Force a DBI method to fail when the current input
         parameters match the supplied pattern.
 
-    set_retval_array
-    set_retval_scalar
+    set retval
         Force specific return values when the current SQL
         matches the supplied pattern.
-
-For more flexibility, the match can also be made against the
-current testing type ("-dbitest[=TYPE]"), i.e. both the
-testing type and the current SQL must match.
 
 INSTALLATION
 
@@ -62,10 +45,13 @@ This module requires these other modules and libraries:
 
   DBI
   Test::MockObject
+  Scalar::Util
+  Carp
+  Test::Warn
+  Test::More
 
 Test::MockDBI has been tested with Test::MockObject
-v0.14 on Linux and Test::MockObject v0.20 on cygwin under
-Windows XP.  DBI was v1.43.
+v0.14 on Linux.
 
 WHY CHOOSE Test::MockDBI OVER DBI::trace() OR DBD::Mock?
 
@@ -74,10 +60,7 @@ or DBD::Mock -- Test::MockDBI lets you change how the
 mocked DBI functions behave, along with modifying
 what data is returned by the mocked DBI functions.
 These changes and modifications can be made specific
-to particular SQL statement patterns, as well as being
-specific to a particular invocation of the program by
-using the "--dbitest[=TYPE]" first command-line argument
-or Test::MockDBI::set_dbi_test_type().
+to particular SQL statement patterns.
 
 This ability to modify DBI function behavior and
 DBI-returned data makes it easier to test code that has
