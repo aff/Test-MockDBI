@@ -49,7 +49,8 @@ sub import{
   
   $instance = bless {
     methods => {
-    }
+    },
+    legacy_regex => {}, #To support the old regex sqls. Should be removed in a later version!!!
   }, __PACKAGE__;  
   
   Test::MockDBI::Db->import($instance);
@@ -71,7 +72,7 @@ sub import{
                   'tables', 'type_info_all', 'type_info', 'quote', 'quote_identifier', 'take_imp_data', 'err', 'errstr'],
     "DBI::st" => ['bind_param', 'bind_param_inout', 'bind_param_array', 'execute', 'execute_array', 'execute_array_fetch',
                   'fetchrow_arrayref', 'fetchrow_array', 'fetchrow_hashref', 'fetchall_arrayref', 'fetchall_hashref', 'finish',
-                  'rows', 'bind_col', 'bind_columns', 'dump_results', 'err', 'errstr']
+                  'rows', 'bind_col', 'bind_columns', 'dump_results', 'err', 'errstr', 'fetch']
   );
   
   my %packages = ( "Test::MockDBI::Db" => "DBI::db", "Test::MockDBI::St" => "DBI::st" );
@@ -154,19 +155,27 @@ sub reset{
 
 sub bad_method{
   my $self = shift;
-  my $method_name = shift;
-  my $sql = shift;
+  my %args = ();
   
-  if($sql && $sql =~ m/^\d+$/){
+  if(scalar(@_) == 3 && $_[0] =~ m/^[a-z_]+$/ && $_[1] =~ m/^\d+$/){
     warn "You have called bad_method in an deprecated way. Please consult the documentation\n";
-    #Assume its old code
+    $args{method} = shift;
+    
     #Throw away $dbi_testing_type
-    $sql = shift;
+    shift;    
+    my $matchingsql = shift;
+    if($matchingsql && $matchingsql ne ''){
+      my $regex = qr/$matchingsql/;
+      $args{sql} = $regex;
+      $instance->{legacy_regex}->{$regex} = $regex;
+    }
+  }else{
+    %args = @_;
   }
-
-  $self->set_retval( method => $method_name, retval => undef, sql => $sql );
-  return 1;
   
+  $args{retval} = undef;
+
+  return $self->set_retval( %args );  
 }
 
 =item bad_param()
@@ -187,24 +196,24 @@ sub bad_method{
 
 sub bad_param{
   my $self = shift;
+  my %args;
   
-  my $p_value   = undef;
-  my $sql       = undef;
-  
-  if(scalar(@_) == 3){
+  #We assume its a legacy call if its length is 3 and arg 1 && 2 is numeric
+  if(scalar(@_) == 3 && $_[0] =~ m/^\d+$/ && $_[1] =~ m/^\d+$/){
     warn "You have called bad_param in an deprecated way. Please consult the documentation\n";
     #Throw away $dbi_testing_type as we dont use it anymoer
     shift;
     #Throw away $p_num as we dont use it anymore
     shift;
-  }
-  $p_value  = shift;
-  $sql      = shift;
-  
-  if($sql){
-    push( @{ $self->{methods}->{bind_param}->{sqls}->{$sql}->{bad_params}}, $p_value);
+    $args{p_value} = shift;
   }else{
-    push( @{ $self->{methods}->{bind_param}->{global_bad_params} }, $p_value);
+    %args = @_;
+  }
+  
+  if($args{sql}){
+    push( @{ $self->{methods}->{bind_param}->{sqls}->{$args{sql}}->{bad_params}}, $args{p_value});
+  }else{
+    push( @{ $self->{methods}->{bind_param}->{global_bad_params} }, $args{p_value});
   }
   
   return 1;
@@ -258,8 +267,8 @@ sub set_retval{
     return;
   } 
 
-  if($sql && ref($sql)){
-    warn "Parameter SQL must be a scalar string\n";
+  if($sql && (ref($sql) && ref($sql) ne 'Regexp')){
+    warn "Parameter SQL must be a scalar string or a precompiled regex\n";
     return;
   }
   
@@ -487,13 +496,14 @@ sub _has_fake_retval{
       #This introduces the bug that the first hit will be the one used.
       #This is done to be complient with the regex functionality in the earlier versions
       #of Test::MockDBI
-      if( $sql =~ m/\Q$key\E/ms && exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
+      if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
+         exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
         if(wantarray()){
           return (1, $self->{methods}->{$method}->{sqls}->{$key}->{retval});
         }else{
           return 1;
         }
-      }
+      }      
     }    
   }
   #If $sql is not or we have no matching sql we return the default if it is set
@@ -525,13 +535,16 @@ sub _is_bad_bind_param{
     #This introduces the bug that the first hit will be the one used.
     #This is done to be complient with the regex functionality in the earlier versions
     #of Test::MockDBI
-    if( $sql =~ m/$key/ms){
+    
+    if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) ){
       #If no bad params is set for this sql do nothing and continue the loop.
       if($self->{methods}->{$method}->{sqls}->{$key}->{bad_params} &&
          ref($self->{methods}->{$method}->{sqls}->{$key}->{bad_params}) eq 'ARRAY'){
         
         foreach my $bad_param ( @{ $self->{methods}->{$method}->{sqls}->{$key}->{bad_params} }){
-          return 1 if Scalar::Util::looks_like_number($param) && $param == $bad_param;
+          if(Scalar::Util::looks_like_number($param) && Scalar::Util::looks_like_number($bad_param)){
+            return 1 if $param == $bad_param;
+          }
           return 1 if $param eq $bad_param;
         }
       }
@@ -540,7 +553,9 @@ sub _is_bad_bind_param{
   
   if(exists $self->{methods}->{$method}->{global_bad_params} && ref($self->{methods}->{$method}->{global_bad_params}) eq 'ARRAY'){
     foreach my $bad_param ( @{ $self->{methods}->{$method}->{global_bad_params} }){
-      return 1 if Scalar::util::looks_like_number($param) && $param == $bad_param;
+      if(Scalar::Util::looks_like_number($param) && Scalar::Util::looks_like_number($bad_param)){
+        return 1 if $param == $bad_param;
+      }
       return 1 if $param eq $bad_param;
     }    
   }  
@@ -684,7 +699,7 @@ sub _dbi_connect{
     Kids => 0,
     ActiveKids => undef,
     CachedKids => undef,
-    Type => undef,
+    Type => 'db',
     ChildHandles => [],
     CompatMode => undef,
     InactiveDestroy => undef,
@@ -724,36 +739,89 @@ sub _dbi_connect{
 ###########################################################
 sub set_retval_array{
   warn 'set_retval_array is deprecated. Please use $instance->set_retval instead' . "\n";
-  my ($dbi_testing_type, $matching_sql, @retval) = @_;
+  my ($self, $dbi_testing_type, $matching_sql, @retval) = @_;
+  
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;
+  
   if(ref($retval[0]) eq 'CODE'){
-    return $instance->set_retval( method => 'fetchrow_array', sql => $matching_sql, retval => $retval[0]);
+    return $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => $retval[0]);
   }else{
-    return $instance->set_retval( method => 'fetchrow_array', sql => $matching_sql, retval => \@retval);
+    return $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => [ \@retval ]);
   } 
 }
 sub set_retval_scalar{
   warn 'set_retval_scalar is deprecated. Please use $instance->set_retval instead' . "\n";
-  my ($dbi_testing_type, $matching_sql, $retval) = @_;
+  my ($self, $dbi_testing_type, $matching_sql, $retval) = @_;
   
   my @methods = qw(fetchall_arrayref fetchrow_arrayref fetchall_hashref fetchrow_hashref);
-  
-  foreach my $method ( @methods ){
-    $instance->set_retval( method => $method, sql => $matching_sql, retval => $retval);
+
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;
+
+  #try to find out if the $retval is an arrayref only, or an arrayref of arrayref
+  # or arrayref of hashrefs
+  if(ref($retval) eq 'ARRAY'){
+    my $item = $retval->[0];
+    
+    if(ref($item) eq 'ARRAY'){
+      #We most likely have an arrayref of arrayrefs
+      #it should be applied to fetchall_arrayref and fetchrow_arrayref
+      $instance->set_retval( method => 'fetchall_arrayref', sql => $regex, retval => $retval);
+      $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => $retval);
+    }elsif(ref($item) eq 'HASH'){
+      #We most likely have an arrayref of hashrefs
+      #it should be applied to fetchall_hashrefref and fetchrow_hashref
+      $instance->set_retval( method => 'fetchall_hashref', sql => $regex, retval => $retval);
+      $instance->set_retval( method => 'fetchrow_hashref', sql => $regex, retval => $retval);
+    }elsif(!ref($item)){
+      #We only have 1 arrayref with values. This was used in the old Test::MockDBI tests
+      #It was passed because you only called for instance fetchrow_arrayref once
+      #We will wrap it in an array and hope for the best
+      $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => [$retval]);
+    }else{
+      #We dont know, set the same retval for EVERYONE!
+      foreach my $method ( @methods ){
+        $instance->set_retval( method => $method, sql => $regex, retval => $retval);
+      }      
+    }
+    
+  }elsif(ref($retval) eq 'HASH'){
+    $instance->set_retval( method => 'fetchrow_hashref', sql => $regex, retval => [$retval]);
+  }else{
+    #We dont know, set the same retval for EVERYONE!
+    foreach my $method ( @methods ){
+      $instance->set_retval( method => $method, sql => $regex, retval => $retval);
+    }          
   }
   return 1;
 }
 sub set_rows{
   warn 'set_rows is deprecated. Please use $instance->set_retval instead' . "\n";
-  my ($dbi_testing_type, $matching_sql, $rows) = @_;
+  my ($self, $dbi_testing_type, $matching_sql, $rows) = @_;
   
-  return $instance->set_retval( method => 'rows', sql => $matching_sql, retval => $rows );
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;  
+  
+  return $instance->set_retval( method => 'rows', sql => $regex, retval => $rows );
 }
 
 sub set_errstr{
   warn "set_errstr is deprecated. Please use $instance->set_retval instead \n";
   return;
 }
-
+sub _is_bad_param{
+  warn "_is_bad_param is deprecated and no longer functional. It allways returns 1\n";
+  return 1;
+}
+sub set_dbi_test_type{
+  warn "set_dbi_test_type is deprecated. Does nothing!\n";
+  return 1;
+}
+sub get_dbi_test_type{
+  warn "get_dbi_test_type is deprecated. Does nothing!\n";
+  return 1;
+}
 
 =head1 AUTHOR
 

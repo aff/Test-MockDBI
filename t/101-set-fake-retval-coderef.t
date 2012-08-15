@@ -16,6 +16,7 @@ my %methods = (
 
 my $dbh = DBI->connect('DBI:mydb:somedb', 'user1', 'password1');
 my $sth = $dbh->prepare('SELECT something FROM sometable');
+$sth->execute(); #Make sure its executed
 
 {
   

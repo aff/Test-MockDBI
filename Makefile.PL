@@ -4,28 +4,6 @@ use warnings;
 use 5.008;
 use ExtUtils::MakeMaker;
 
-# Set PERL_MM_USE_DEFAULT to make prompt use default, or set
-# AUTOMATED_TESTING to skip altogether
-
-# ------ get DBI parameters for later testing
-if (!-s "DBI.cfg" and !$ENV{AUTOMATED_TESTING}) {
-  $| = 1;
-  my $dsn  = prompt("DBI data source:",  "");
-  my $user = prompt("DBI username:",     "");
-  my $pass = prompt("DBI password:",     "");
-  my $sql  = prompt("DBI 'SELECT' SQL:", "");
-  my $ofh;
-  open($ofh, ">", "DBI.cfg") || die "cannot create DBI.cfg: $!\n";
-  print $ofh <<"endPRINT";
-DSN  $dsn
-USER $user
-PASS $pass
-SQL  $sql
-endPRINT
-  close($ofh) || die "cannot close DBI.cfg: $!\n";
-  chmod(0600, "DBI.cfg");
-}
-
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
 # the contents of the Makefile that is written.
 WriteMakefile(

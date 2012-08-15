@@ -49,7 +49,7 @@ my $md = Test::MockDBI::get_instance();
   $md->reset();
   
   #New interface
-  is($md->bad_method($_, ""), 1, q{Expect 1}) for(@methods);
+  is($md->bad_method( method => $_ ), 1, q{Expect 1}) for(@methods);
 
   #Executing bad methods
   is(eval('$dbh->' . $_ . '();'), undef, $_ . ' failed successfully') for(@methods);
@@ -89,7 +89,7 @@ my $md = Test::MockDBI::get_instance();
   
 
   #New interface
-  is($md->bad_method($_, ""), 1, q{Expect 1}) for(@methods);
+  is($md->bad_method( method => $_), 1, q{Expect 1}) for(@methods);
 
   #Executing bad methods
   foreach my $method (@methods){
