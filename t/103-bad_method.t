@@ -28,7 +28,7 @@ my $md = Test::MockDBI::get_instance();
 
 {
   #Testing bad_method on the database handler
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
+  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1', { AutoCommit => undef }); #AutoCommit => undef to silence warnings!
   cmp_ok(ref($dbh), 'eq', 'DBI::db', 'Ref of dbh is DBI::db');
 
   my @methods = qw( disconnect prepare prepare_cached do commit rollback );
@@ -65,7 +65,7 @@ my $md = Test::MockDBI::get_instance();
 
 {
   #Testing bad_method in the statement handler
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
+  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1', { AutoCommit => undef }); #AutoCommit => undef to silence warnings
   my $sth = $dbh->prepare('select something from somewhere where anything = ?');
   
   my @methods = qw( rows bind_param execute finish fetchall_arrayref fetchrow_arrayref fetchrow_array );

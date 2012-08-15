@@ -13,7 +13,7 @@ my %methods = (
                 'fetchall_arrayref', 'finish', 'rows']
 );
 
-my $dbh = DBI->connect('DBI:mydb:somedb', 'user1', 'password1');
+my $dbh = DBI->connect('DBI:mydb:somedb', 'user1', 'password1', { AutoCommit => undef } ); #AutoCommit to silence warnings!
 my $sth = $dbh->prepare('SELECT something FROM sometable');
 $sth->execute(); #Make sure its executed
 

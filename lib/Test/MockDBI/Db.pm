@@ -171,9 +171,14 @@ sub _dbi_commit{
   # Reset both errors as per DBI Rule
   $mockdbi->_clear_dbi_err_errstr($self);
   
+  
+  
   #The executed attribute is updated even if the
   #call fails
   $self->{Executed} = undef;
+  
+  #Warning is displayed even if the method fails
+  warn "commit ineffective with AutoCommit enabled" if $self->{AutoCommit};
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
@@ -184,7 +189,6 @@ sub _dbi_commit{
     }
     return $retval;
   }
-  warn "commit ineffective while AutoCommit" if $self->{AutoCommit};
   
   #Updating dbh attributes
   $self->{AutoCommit} = 1;
@@ -201,6 +205,9 @@ sub _dbi_rollback{
   #call fails
   $self->{Executed} = undef;
   
+  #Warning is displayed even if the method fails
+  warn "rollback ineffective with AutoCommit enabled" if $self->{AutoCommit};
+  
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
     $mockdbi->_set_fake_dbi_err_errstr($self);
@@ -210,7 +217,7 @@ sub _dbi_rollback{
     }
     return $retval;
   }
-  warn "rollback ineffective while AutoCommit" if $self->{AutoCommit};
+  
   $self->{AutoCommit} = 1;
   return 1;  
 }

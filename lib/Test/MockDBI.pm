@@ -385,8 +385,8 @@ sub _set_dbi_err_errstr{
     $obj->{errstr} = $args{errstr};
   }
   
-  print $obj->{errstr} . "\n" if $obj->{PrintError};
-  die( $obj->{errstr} ) if $obj->{RaiseError};
+  print $obj->{errstr} . "\n" if $obj->{PrintError} && $obj->{errstr};
+  die( (($obj->{errstr}) ? $obj->{errstr} : '') ) if $obj->{RaiseError};
   return 1;
 }
 
@@ -414,7 +414,7 @@ sub _set_fake_dbi_err_errstr{
       #This introduces the bug that the first hit will be the one used.
       #This is done to be complient with the regex functionality in the earlier versions
       #of Test::MockDBI
-      if( $sql =~ m/\Q$key\E/ms){
+      if( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) ||  $sql =~ m/\Q$key\E/ms){
         $self->_set_dbi_err_errstr($obj,
           err => $self->{methods}->{$method}->{sqls}->{$key}->{err},
           errstr => $self->{methods}->{$method}->{sqls}->{$key}->{errstr}
