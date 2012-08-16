@@ -41,11 +41,11 @@ use_ok('Test::MockDBI');
   
   warning_like{
     $dbh->commit();
-  } qr/commit ineffective while AutoCommit/, "commit displays warning when autocommit is enabled";
+  } qr/commit ineffective with AutoCommit enabled/, "commit displays warning when autocommit is enabled";
   
   warning_like{
     $dbh->rollback();
-  } qr/rollback ineffective while AutoCommit/, "rollback displays warning when autocommit is enabled";  
+  } qr/rollback ineffective with AutoCommit enabled/, "rollback displays warning when autocommit is enabled";  
   
 }
 

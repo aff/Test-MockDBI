@@ -25,7 +25,7 @@ my $mockinst = Test::MockDBI::get_instance();
 }
 {
   #Check that we can set a fake retval
-  $mockinst->bad_method('connect');
+  $mockinst->bad_method( method => 'connect' );
   
   my $dbh = DBI->connect();
   #$dbh should now be undef
