@@ -1,1062 +1,828 @@
-package Test::MockDBI;
+package
+Test::MockDBI;
 
-# Test DBI interfaces using Test::MockObject.
-
-# ------ use/require pragmas
 use 5.008;                              # minimum Perl is V5.8.0
-use strict;                             # better compile-time checking
-use warnings;                           # better run-time checking
-use Data::Dumper;                       # dump data in a pleasing format
-use Test::MockObject::Extends;          # mock objects for extending classes
-require Exporter;                       # we are an Exporter
-
-
-# ------ exportable constant
-use constant MOCKDBI_WILDCARD => 0;     # DBI type wildcard ("--dbitest=TYPE")
-
-
-# ------ global variables
-our %EXPORT_TAGS                        # named lists of symbols to export
- = ( 'all' => [ qw( MOCKDBI_WILDCARD ) ] );
-our @EXPORT_OK                          # symbols to export upon request
- = ( @{ $EXPORT_TAGS{'all'} } );
-our @EXPORT = qw();                     # symbols to always export
-our @ISA = qw(Exporter);                # we ISA Exporter :)
-our $VERSION = '0.67';                  # our version number
-
-# ------ file-global variables
-my %array_retval  = ();                 # return array values for matching SQL
-my @bad_params    = ();                 # list of bad parameter values
-my @bind_columns  = ();                 # bind_columns() list of refs to bind
-my @cur_array     = ();                 # current array to return
-my $cur_scalar    = undef;              # current scalar to return
-my $cur_sql       = "";                 # current SQL
-my %fail          = ();                 # hash for methods to fail, why and how
-my $fail_param    = 0;                  # TRUE when failing due to bad param
-my $instance      = undef;              # my only instance
-my $mock          = "";                 # mock DBI object from Test::MockObject::Extends
-my $object        = "";                 # our fake DBI object
-my %rows_retval   = ();                 # return DBI::rows() values for matching SQL
-my %scalar_retval = ();                 # return scalar values for matching SQL
-my %inout_hash    = ();
-my $type          = 0;                  # DBI testing type from command line
-my %errstr        = ();                 # The scalar to return for errors
-my $debug         = undef;              # Toggle to enable debugging
-my $rollback      = 0;
-my $wait_for_commit = 0;
-my $commit_rollback_enable = 0;
-my $err_head = 'Test-MockDBI error:'; 
-
-
-# ------ convert argument to defined value, use "" if undef argument
-sub _define {
-    my $arg = shift;                    # argument to convert
-
-    if (defined($arg)) {
-        return ($arg);
-    }
-    return "";
-}
-
-
-# ------ return TRUE if SQL matches pattern, handle undef values
-sub _sql_match {
-    my $sql     = _define(shift);        # SQL
-    my $pattern = _define(shift);        # SQL regex string to match
-
-    if (!$sql && !$pattern) {
-        return 1;
-    }
-    if (!$pattern) {
-        return 0;
-    }
-        if ($sql =~ m/$pattern/ms) {
-                return 1;
-        }
-        return 0;
-}
-
-
-# ------ check if this DBI method should fail
-sub _fail {
-    my $method  = shift;                # method name
-    my $spec    = "";                   # method failure specification
-
-    # ------ fail returned data due to bad parameter
-    if ($fail_param &&
-     ($method =~ m/^fetch/ || $method =~ m/^select/)) {
-        $fail_param = 0;
-        return 1;
-    }
-
-    # ------ no failure modes for this DBI method
-    $spec = $fail{$method};
-    if (!defined($spec)) {
-        return 0;
-    }
-
-    # ------ no failure modes for this MockDBI type
-    if (!defined($spec->{$type})) {
-        return 0;
-    }
-
-    # ------ return TRUE if SQL matches
-    return _sql_match($cur_sql, $spec->{$type}->{"SQL"});
-}
-
-
-# ------ bind an array to DBI columns bound by bind_columns()
-sub _bind_array {
-    my $i;                              # generic loop index
-
-    return if (scalar(@bind_columns == 0));
-
-    for ($i = 0; $i < scalar(@bind_columns); $i++) {
-        ${$bind_columns[$i]} = $_[$i];
-    }
-}
-
-# ------ force an array return value
-sub _force_retval_array {
-    local $_;                           # localized topic
-    my @array = ();                     # generic array
-
-    foreach (@{ $array_retval{MOCKDBI_WILDCARD()} }, @{ $array_retval{$type} }) {
-        if (_sql_match($cur_sql, $_->{"SQL"})) {
-            if (ref($_->{"retval"}) eq "ARRAY"
-             && ref($_->{"retval"}->[0]) eq "CODE") {
-                @array = &{ $_->{"retval"}->[0] }();
-                if (scalar(@array) > 0) {
-                    _bind_array(@array);
-                }
-                return @array;
-            }
-            @array = @{ $_->{"retval"} };
-            _bind_array(@array);
-
-            # Return array ref if first element of array is HASH ref
-            if (scalar(@array) && ref($array[0]) eq 'HASH') {
-              (defined($array[0])) ? return \@array : return;
-            }
-
-            return @array;
-        }
-    }
-    if (scalar(@_) < 1) {
-        return ();
-    }
-    _bind_array(@_);
-    return @_;
-}
-
-
-# ------ bind an arrayref to DBI columns bound by bind_columns()
-sub _bind_arrayref {
-    my $i;                              # generic loop index
-
-    return if (scalar(@bind_columns == 0));
-    if (ref($_[0]) ne "ARRAY") {
-        for ($i = 0; $i < scalar(@bind_columns); $i++) {
-            ${$bind_columns[$i]} = undef;
-        }
-    }
-
-    for ($i = 0; $i < scalar(@bind_columns); $i++) {
-        ${$bind_columns[$i]} = $_[0]->[$i];
-    }
-}
-
-
-# ------ force a scalar return value
-sub _force_retval_scalar {
-    local $_;                           # localized topic
-    my $arrayref = "";                  # (probably) generic arrayref
-
-    foreach (@{ $scalar_retval{MOCKDBI_WILDCARD()} }, @{ $scalar_retval{$type} }) {
-        if (_sql_match($cur_sql, $_->{"SQL"})) {
-            if (ref($_->{"retval"}) eq "CODE") {
-                $arrayref = &{ $_->{"retval"} }();
-                if (defined($arrayref) && ref($arrayref) eq "ARRAY") {
-                    _bind_arrayref($arrayref);
-                }
-                return $arrayref;
-            }
-            $arrayref = $_->{"retval"};
-            _bind_arrayref($arrayref);
-            return $arrayref;
-        }
-    }
-    if (defined($_[0])) {
-        _bind_arrayref($_[0]);
-    }
-    return $_[0];
-}
-
-
-# ------ force a DBI::rows() return value
-sub _force_retval_rows {
-    local $_;                           # localized topic
-
-    foreach (@{ $rows_retval{MOCKDBI_WILDCARD()} }, @{ $rows_retval{$type} }) {
-        if (_sql_match($cur_sql, $_->{"SQL"})) {
-            if (ref($_->{"retval"}) eq "CODE") {
-                return &{ $_->{"retval"} }();
-            }
-            return $_->{"retval"};
-        }
-    }
-    return $_[0];
-}
-
-
-# ------ fake the specified DBI method call
-sub _fake {
-  my $method = shift;    # file-global method name
-  my $arg    = shift;    # first method arg
-  my $retval;            # scalar to return
-
-  print "\n$method()" if ($debug);
-  if (defined($arg)) {
-    print " '$arg'" if ($debug);
-  }
-  print "\n" if ($debug);
-  if (_fail($method)) {
-    return;
-  }
-
-  if ($method eq "rows") {
-    $retval = shift;
-    return _force_retval_rows($retval);
-  } elsif ($method =~ m/^fetch/ || $method =~ m/^select/) {
-
-    if ( $method eq "fetch"
-      || $method eq "fetchrow"
-      || $method eq "fetchrow_array"
-      || $method eq "selectrow_array")
-    {
-      return ($wait_for_commit && $commit_rollback_enable)
-        ? ''
-        : _force_retval_array(@_);
-    }
-    $retval = shift;
-    return ($wait_for_commit && $commit_rollback_enable)
-      ? ''
-      : _force_retval_scalar($retval);
-  }
-
-  if ( defined $method
-    && defined $arg
-    && $method =~ /^(prepare|do|prepare_cached)/i
-    && $arg =~ /^(select)/i)
-  {
-    $commit_rollback_enable = 0;
-
-  }
-
-  # handle Insert or Update or Delete DML operations
-  if ( defined $method
-    && defined $arg
-    && $method =~ /^(prepare|do|prepare_cached)/i
-    && $arg =~ /^(insert|delete|Update)/i)
-  {
-    $commit_rollback_enable = 1;
-
-  }
-
-  $retval = shift;
-  return $retval;
-}
-
-
-# ------
-# ------ Test::MockDBI external methods
-# ------
-
-
-# ------ return the current DBI testing type number
-sub get_dbi_test_type {
-    return $type;
-}
-
-
-# ------ set the current DBI testing type number
-sub set_dbi_test_type {
-    $type = shift;
-    if (!defined($type) || $type !~ m/^\d+$/) {
-        $type = 0;
-    }
-}
-
-
-# ------ force a DBI method to be bad
-sub bad_method {
-    my $self   = shift;                 # my blessed self
-    my $method = shift;                 # method name
-    my $type   = shift;                 # type number from --dbitest=TYPE
-    my $sql    = shift;                 # SQL pattern for badness
-
-    $fail{$method}->{$type}->{"SQL"} = $sql;
-    return 1;
-}
-
-
-# ------ set up an array return value for the specified SQL pattern
-sub set_retval_array {
-    my $self   = shift;                 # my blessed self
-    my $type   = shift;                 # type number from --dbitest=TYPE
-    my $sql    = shift;                 # SQL pattern for badness
-    my $valid = [ $sql ];
-    if ( grep { m/^\s*select/i } @$valid ) {
-        $commit_rollback_enable = 0;
-    }
-    push @{ $array_retval{$type} },
-     { "SQL" => $sql, "retval" => [ @_ ] },
-}
-
-
-# ------ set up scalar return value for the specified SQL pattern
-sub set_retval_scalar {
-    my $self   = shift;                 # my blessed self
-    my $type   = shift;                 # type number from --dbitest=TYPE
-    my $sql    = shift;                 # SQL pattern for badness
-    my $valid = [ $sql ];
-    if ( grep { m/^\s*select/i } @$valid ) {
-        $commit_rollback_enable = 0;
-    }
-    push @{ $scalar_retval{$type} },
-     { "SQL" => $sql, "retval" => $_[0] };
-   
-}
-
-# ------ called on execute - sets the inout values to those setup by
-# ------ set_inout_hashref.  It is important that inout variables are
-# ------ not populated until execute in case it fails or return before
-# ------ execute is called
-sub handle_inouts {
-  my $self = shift;
-
-  # store ref_value which should be set on execute
-  foreach my $hr (@{ $inout_hash{$type} }) {
-    if (_sql_match($cur_sql, $hr->{"SQL"})) {
-
-      # check that ref_value are set for all params without
-      # altering anything
-      foreach my $params (keys %{ $hr->{"inouts"} }) {
-        if (!exists $hr->{"inouts"}->{$params}->{refvar}) {
-          die "missing refval";    # TODO
-        }
-        if (!exists $hr->{"inouts"}->{$params}->{inoutvalue}) {
-          die "missing inoutvalue";    # TODO
-        }
-      }
-
-      # Set all inout values
-      foreach my $params (keys %{ $hr->{"inouts"} }) {
-        ${ $hr->{"inouts"}->{$params}->{refvar} } =
-          $hr->{"inouts"}->{$params}->{inoutvalue};
-      }
-    }
-  }
-
-  return 1;
-}
-
-
-# ------ set up scalar inout value(s) for the specified SQL pattern
-# usage: set_inout_hashref(1, "call func()", { 3 => 42, 5 => "success"})
-sub set_inout_hashref {
-  my $self       = shift;
-  my $type       = shift;
-  my $sql        = shift;
-  my $io_hashref = shift;    # E.g. { 3 => 42, 5 => "success" }
-  
-  die unless $io_hashref; # TODO
-  die unless scalar(keys %{$io_hashref}); # TODO - must have at least
-                                          # one element
-
-  # Transform io_hashref to make it easy to set refvar in bind_param_inout
-  foreach my $key (keys %{$io_hashref}) {
-    $io_hashref->{$key} =
-      { 
-	   inoutvalue => $io_hashref->{$key}, 
-	   # intentional comment below
-#	   refvar     => undef   # <-- This key will be added in bind_param_inout
-	  };
-  }
-
-  push @{ $inout_hash{$type} }, { "SQL" => $sql, "inouts" => $io_hashref };
-}
-
-
-# ------ set up DBI::rows return value for the specified SQL pattern
-sub set_rows {
-    my $self   = shift;                 # my blessed self
-    my $type   = shift;                 # type number from --dbitest=TYPE
-    my $sql    = shift;                 # SQL pattern for badness
-    my @Valid = qw( $sql );
-    my $valid = [ $sql ];
-    if ( grep { m/^\s*select/i } @$valid ) {
-        $commit_rollback_enable = 0;
-    }
-    push @{ $rows_retval{$type} },
-     { "SQL" => $sql, "retval" => $_[0] },
-}
-
-
-# ------ force a parameter to be bad
-# ------ Returns current number of bad params
-sub bad_param {
-    my $self      = shift;              # my blessed self
-    my $bad_type  = shift;              # type number from --dbitest=TYPE
-    my $bad_param = shift;              # "known" bad parameter number
-    my $bad_value = shift;              # "known" bad parameter value
-
-    push(@bad_params, [ $bad_type, $bad_param, $bad_value ] );
-}
-
-# ------ allow errstr to be set and unset
-sub set_errstr {
-    my $self      = shift;              # my blessed self
-    my $bad_type  = shift;              # type number from --dbitest=TYPE
-    my $arg       = shift;              # the argument
-    if (defined($arg) && $arg ne '') {
-      $errstr{$bad_type} = $arg;
-    } else {
-      $errstr{$bad_type} = undef;
-    }
-}
-
-# Return true if given param name and value is bad in given mode,
-# otherwise undefined.  Used for testing purposes only.
-sub _is_bad_param {
-  my $self   = shift;    # my blessed self
-  my $type   = shift;    # type number from --dbitest=TYPE
-  my $number = shift;    # "known" bad parameter number
-  my $value  = shift;    # "known" bad parameter value
-
-  foreach my $param (@bad_params) {
-    if ( $param->[0] == $type
-      && $param->[1] == $number
-      && $param->[2] eq $value)
-    {
-      return 1;
-    }
-  }
-  return;
-}
-
-# Returns always undef since handle_errors is only called when _fake
-# returns undef.
-sub handle_errors {
-  my $self     = shift;                      # my blessed self
-  my $errormsg = shift;                      # the error message
-  my $caller   = shift || (caller(1))[3];    # the error message
-  print $errormsg if $debug;
-
-  $self->{Err}    = $DBI::stderr;
-  $self->{Errstr} = $errormsg;
-
-  warn "DBI::db $caller failed: $errormsg"
-    if (defined($self->{PrintError}) && $self->{PrintError} == 1);
-  die "DBI::db $caller failed: $errormsg"
-    if (defined($self->{RaiseError}) && $self->{RaiseError} == 1);
-
-  return;  # See note above 
-}
-
-#
-# ------ GLOBAL INITIALIZATION
-#
-# ------ initialize our instance
-$instance = bless {}, "Test::MockDBI";
-
-# ------ set our testing type if we are in test mode
-$type = 0;
-if ($#ARGV >= 0 && $ARGV[0] =~ m/^--?dbitest(=(\d+))?/) {
-    $type = 1;
-    if (defined($2)) {
-        $type = $2;
-    }
-    shift;
-}
-
-# ------ non-zero type of DBI testing to perform
-if ($type) {
-
-    # ------ initialize DBI mock interface
-    $mock = Test::MockObject::Extends->new();
-    print "mock DBI interface initialized...\n" if ($debug);
-
-    $mock->fake_module("DBI",
-     connect =>  sub {
-        my $self = shift;
-        my $dsn  = _define(shift);
-        my $user = _define(shift);
-        my $pass = _define(shift);
-        my $attr = shift;
-      
-        $DBI::stderr    = 2_000_000_000;
-        $DBI::err       = undef;
-        $DBI::errstr    = undef;
-        
-        my %attributes;
-        $object = bless({}, "DBI::db");
-        
-        %attributes = (
-            PrintError => 1,
-            RaiseError => 0,
-            AutoCommit => 1,
-            ref $attr ? %$attr : (),
-        );            
-       
-        while ( my ($a, $v) = each %attributes) {
-        	 $object->{$a} = $v ;                
-        }
-        $object->{BegunWork}    = 0;
-        $object->{Errstr}       = undef;
-        $object->{Err}          = undef;       
-        
-        
-        $wait_for_commit        = 1 if $object->{AutoCommit} == 0 ;
-        $cur_sql = "CONNECT TO $dsn AS $user WITH $pass";
-        $fail_param = 0;
-        @bind_columns = ();
-       
-        return _fake("connect", $cur_sql, $object) || handle_errors($object,"$self connect ($dsn) failed", "connect");
-     },
-     
-     errstr =>  sub {
-        my $self = shift;
-        return "$err_head Could not make fake connection" if !defined $DBI::errstr;
-        return _fake("errstr", $_[0], $errstr{$type});
-     },
-     err =>  sub {
-        my $self = shift;
-        return $DBI::stderr if !defined $DBI::err;
-        return _fake("err", $_[0], $errstr{$type});
-     },
-    );
-    
-    $mock->fake_module( "DBI::db",
-     ping =>  sub {
-        my $self = shift;
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        return _fake("ping", $_[1], 1) || handle_errors($self,"Unable to ping", "ping");
-     },
-     disconnect =>  sub {
-        my $self = shift;
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        $cur_sql = "DISCONNECT";
-        $fail_param = 0;
-        @bind_columns = ();
-        return _fake("disconnect", $_[1], 1) || handle_errors($self,"Unable to disconnect", "disconnect");
-     },
-     errstr =>  sub {
-        my $self = shift;
-        return $err_head . " " . $self->{Errstr} if defined $self->{Errstr};
-        return _fake("errstr", $_[0], $errstr{$type});
-     },
-     err =>  sub {
-        my $self = shift;
-        return $self->{Err} if defined $self->{Err};#DBI->errstr; 
-       return _fake("errstr", $_[0], $errstr{$type});
-     },
-     prepare =>  sub {
-        my $self =shift;
-        $cur_sql = shift;
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        $cur_sql = _define($cur_sql);
-        $fail_param = 0;
-        @bind_columns = ();
-        
-        unless ( $cur_sql =~ /\w+/ ) {
-            $self->{Err}    = $DBI::stderr;
-            $self->{Errstr} = "SQL query is either blank or empty, Please check.";
-            handle_errors($self,$self->{Errstr}, "prepare");
-        }
-        
-        
-        return _fake("prepare", $cur_sql, $object);
-     },
-     prepare_cached =>  sub {
-        my $self =shift;
-        $cur_sql = _define($_[0]);
-        
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        $fail_param = 0;
-        @bind_columns = ();
-        
-        unless ( $cur_sql =~ /\w+/ ) {
-            $self->{Err}    = $DBI::stderr;
-            $self->{Errstr} = "SQL query is either blank or empty, Please check.";
-            handle_errors($self,$self->{Errstr}, "prepare_cached");
-        }
-        
-        return _fake("prepare_cached", $_[1], $object);
-     },
-     commit =>  sub {
-        my $self  = shift;
-        
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-
-		warn("commit ineffective with AutoCommit enabled")  
-		  if (defined ($self->{AutoCommit}) && $self->{AutoCommit} == 1);
-        
-        if ( $commit_rollback_enable ){
-            $wait_for_commit = $rollback ? 1 : 0 ;
-            $self->{AutoCommit} = 1 if ($self->{BegunWork} == 1);
-            $self->{BegunWork} = 0;           
-        }
-        return _fake("commit", $_[0], 1) || handle_errors($object,"Commit failed", "commit");
-      
-     },
-     bind_columns =>  sub {
-        my $self = shift;
-        
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-
-        unless(scalar(@_)) {
-            $self->{Err}    = $DBI::stderr;
-            $self->{Errstr} = "There are no columns for binding";
-            handle_errors($self,$self->{Errstr}, "bind_columns");
-        }
-        @bind_columns = @_;        
-        return _fake("bind_columns", $_[0], 1) || handle_errors($object,"Binding failed", "bind_columns");
-     },
-     bind_param => sub {
-        # Return 1 if param bound was good, otherwise -1 (still true,
-        # but indicates badness)
-
-        my $self         = shift;             # my blessed self
-        my $param        = _define(shift);    # parameter number
-        my $value        = shift;             # parameter value
-        my $attr_or_type = _define(shift);    # attributes or type
-        my $bad_param    = "";                # 1 of @bad_params
-
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-
-        print "\nbind_param()\n" if ($debug);
-        print "parm $param, value " if ($debug);
-        
-        if ($attr_or_type) {
-            if (ref($attr_or_type) eq "HASH") {
-                print "  attrs ", Dumper($attr_or_type) if ($debug);
-            } else {
-                print "type '$attr_or_type'" if ($debug);
-            }
-        }
-        print "\n" if ($debug);
-        if (_fail("bind_param")) {
-           return;
-        }
-        ## no critic (RequireLexicalLoopIterators)
-        foreach $bad_param (@bad_params) {
-            if ($bad_param->[0] == $type
-             && $bad_param->[1] == $param
-             && $bad_param->[2] eq $value) {
-                
-                $self->{Err}    = $DBI::stderr;
-                $self->{Errstr} = "Check paramters $param = '$value'\n";
-                handle_errors($self, $self->{Errstr}, "bind_param");
-                
-                $fail_param = 1;
-                return -1;  # Indicate that param is bad
-            }
-        }
-        return 1;
-     },
-     bind_param_inout => sub {
-	    #print "ARGS:" . Dumper(\@_) if ($debug);
-               
-        my $self        = shift;             # my blessed self
-        my $params       = _define(shift);   # parameter number
-        my $ref_value   = shift;             # Reference of bind value
-        
-        my $max_len     = _define(shift);    # Min. amount of memory to allocate to bind value
-
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        if ( ref($ref_value) ne 'SCALAR' ) {
-		    print "ref(ref_value) is " . ref($ref_value) . "\n" if ($debug);
-            
-            $self->{Err}    = $DBI::stderr;
-            $self->{Errstr} = "bind_param_inout needs a reference to a scalar value";
-            handle_errors($self,$self->{Errstr}, "bind_param_inout");
-            return;
-        }
-
-		# store ref_value which should be set on execute
-		foreach my $hr (@{$inout_hash{$type}} ) {
-   	      if (_sql_match($cur_sql, $hr->{"SQL"})) {
-  		    $hr->{"inouts"}->{$params}->{refvar} = $ref_value; 
-		  }
-	    }
-        
-        return _fake("bind_param_inout", $self, $ref_value) || handle_errors($self,"Binding failed", "bind_param_inout");
-        
-     },
-     do =>  sub {
-        my $self        = shift;             # my blessed self
-        my $params       = _define(shift);    # parameter number
-
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-
-        unless ( $params =~ /\w+/) {
-            $self->{Err}    = $DBI::stderr;
-            $self->{Errstr} = "Expect SQL query";
-            handle_errors($self,$self->{Errstr}, "do");
-            return;
-        }
-        return _fake("do", $_[1], 1);
-     },
-     execute =>  sub {
-        my $self = shift;
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-	    return unless handle_inouts();
-        return _fake("execute", $_[1], 1) || handle_errors($object,"Execute failed", "execute");
-     },
-     finish =>  sub {
-        $fail_param = 0;
-        return _fake("finish", $_[1], 1) || handle_errors($object,"Finish failed", "finish");
-     },
-     fetchall_arrayref =>  sub {
-        return _fake("fetchall_arrayref", $_[1], undef) || handle_errors($object,"Fetch all array reference failed", "fetchall_arrayref");
-     },
-     fetchrow_arrayref =>  sub {
-        return _fake("fetchrow_arrayref", $_[1], undef) || handle_errors($object,"Fetch row array reference failed", "fetchrow_arrayref");
-     },
-     fetchrow_hashref =>  sub {
-        return _fake("fetchrow_hashref", $_[1], undef) || handle_errors($object,"Fetch row hash reference failed", "fetchrow_hashref");
-     },
-     fetchall_hashref =>  sub {
-        return _fake("fetchall_hashref", $_[1], undef) || handle_errors($object,"Fetch all hash reference failed", "fetchall_hashref");
-     },
-     fetchrow_array =>  sub {
-        return _fake("fetchrow_array", $_[1]) || handle_errors($object,"Fetch row array failed", "fetchrow_array");
-     },
-     fetchrow =>  sub {
-        return _fake("fetchrow", $_[1]) || handle_errors($object,"Fetch row failed", "fetchrow");
-     },
-     fetch =>  sub {
-        return _fake("fetch", $_[1]) || handle_errors($object,"Fetch failed", "fetch");
-     },
-     rows =>  sub {
-        return _fake("rows", $_[1], 0) || handle_errors($object,"Rows failed", "rows");
-     },
-     begin_work => sub {
-        my $self = shift;
-        $self->{AutoCommit} = 0;
-        $wait_for_commit = 1;
-        $self->{BegunWork} = 1;
-        
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-
-        return _fake("begin_work", $_[1], 0) || handle_errors($self,"Begin work unable to set", "begin_work");
-     },
-     rollback => sub {
-        my $self  = shift;
-
-        # Reset both errors as per DBI Rule
-        ( $self->{Err}, $self->{Errstr} ) = ( undef, undef );
-        
-        if ( $self->{AutoCommit} == 1){
-                warn "rollback ineffective with AutoCommit enabled";
-        }
-        if ( $commit_rollback_enable ){
-            $rollback = 1;
-            $self->{AutoCommit} = 1 if ($self->{BegunWork} == 1);
-            $self->{BegunWork} = 0;           
-        };
-        return _fake("rollback", $_[0], 1) || handle_errors($self,"Rollback failed", "rollback");
-     },
-    );
-    $mock->fake_new("DBI");
-}
-
-
-
-# ------ return our instance, as we are a singleton class
-sub get_instance {
-  $debug = shift;
-  $rollback = 0;
-  $wait_for_commit = 0;
-  $commit_rollback_enable = 0;
-  return $instance;
-}
-
-
-1;
-
-__END__
-
+use strict;
+use warnings;
+use Carp;
+use Clone;
+use Test::MockObject::Extends;
+use Scalar::Util;
+
+our $VERSION = '0.70';
+
+my $instance = undef;
 
 =head1 NAME
-
-Test::MockDBI - Mock DBI interface for testing
+  
+Test::MockDBI - Mocked DBI interface for testing purposes
 
 =head1 SYNOPSIS
 
   use Test::MockDBI;
-     OR
-  use Test::MockDBI qw( :all );
+  
+  my $mi = Test::MockDBI::get_instance();
+  
+  Sets a fake return value for the rows statementhandler
+  $mi->set_retval( method => rows, retval => sub{ return scalar( @somearray ); });
+  
+  $mi->set_retval( method => 'bind_param', retval => undef);
+  Same as:
+  $mi->bad_method('bind_param');
+  
+  You can also specify return values for specific sqls
+  $mi->set_retval( method => rows, retval => sub{ return scalar( @somearray ); }, sql => 'select id from names');
+  
+  $mi->set_retval( method => 'bind_param', retval => undef, sql => 'select id from names where id < ?');
+  Same as:
+  $mi->bad_method('bind_param', 'select id from names where id < ?');
+  
+  
+  
+=cut
 
-  Test::MockDBI::set_dbi_test_type(42);
-  if (Test::MockDBI::get_dbi_test_type() == 42) {
-    ...
 
-  $mock_dbi = get_instance Test::MockDBI;
-
-  $mock_dbi->bad_method(
-   $method_name,
-   $dbi_testing_type,
-   $matching_sql);
-
-  $mock_dbi->bad_param(
-   $dbi_testing_type,
-   $param_number,
-   $param_value);
-
-  $mock_dbi->set_retval_array(
-   $dbi_testing_type,
-   $matching_sql,
-   @retval || CODEREF);
-  $mock_dbi->set_retval_array(MOCKDBI_WILDCARD, ...
-
-  $mock_dbi->set_retval_scalar(
-   $dbi_testing_type,
-   $matching_sql,
-   $retval || CODEREF);
-  $mock_dbi->set_retval_scalar(MOCKDBI_WILDCARD, ...
-
-  $mock_dbi->set_rows(
-   $dbi_testing_type,
-   $matching_sql,
-   $rows || CODEREF);
-  $mock_dbi->set_rows(MOCKDBI_WILDCARD, ...
-
-=head1 EXAMPLE
-
-Code: 
-
-  # Enable testing with Test::MockDBI
-  BEGIN { push @ARGV, "--dbitest"; }
-  use Test::MockDBI qw( :all );
-  my $md  = Test::MockDBI::get_instance();
-  my $dbh = DBI->connect("", "", "");
-
-  # Set of return values for given sql query
-  my $aref_of_hrefs = [
-    { name => 'Huey',  instrument => 'cello' },
-    { name => 'Dewey', instrument => 'trombone' },
-    { name => 'Louie', instrument => 'piano' },
-  ];
-  $md->set_retval_scalar(
-    MOCKDBI_WILDCARD,
-    "select name, instrument from nephews",
-    sub { shift @$aref_of_hrefs }
+sub import{
+  
+  require Test::MockDBI::Db;
+  require Test::MockDBI::St;
+  
+  
+  $instance = bless {
+    methods => {
+    },
+    legacy_regex => {}, #To support the old regex sqls. Should be removed in a later version!!!
+  }, __PACKAGE__;  
+  
+  Test::MockDBI::Db->import($instance);
+  Test::MockDBI::St->import($instance);
+  
+  my $mock = Test::MockObject::Extends->new();
+  
+  $mock->fake_module("DBI",
+   connect =>  \&_dbi_connect,
+   _concat_hash_sorted => \&_dbi__concat_hash_sorted,
+   _get_sorted_hash_keys => \&_dbi__get_sorted_hash_keys,
+   looks_like_number => \&_dbi__looks_like_number
   );
+  
+  my %dbi_methods = (
+    "DBI::db" => ['clone', 'data_sources', 'do', 'last_inserted_id', 'selectrow_array', 'selectrow_hashref', 'selectall_arrayref',
+                  'selectall_hashref', 'selectcol_arrayref', 'prepare', 'prepare_cached', 'commit', 'rollback', 'begin_work', 'disconnect',
+                  'ping', 'get_info', 'table_info', 'column_info', 'primary_key_info', 'primary_key', 'foreign_key_info', 'statistics_info',
+                  'tables', 'type_info_all', 'type_info', 'quote', 'quote_identifier', 'take_imp_data', 'err', 'errstr'],
+    "DBI::st" => ['bind_param', 'bind_param_inout', 'bind_param_array', 'execute', 'execute_array', 'execute_array_fetch',
+                  'fetchrow_arrayref', 'fetchrow_array', 'fetchrow_hashref', 'fetchall_arrayref', 'fetchall_hashref', 'finish',
+                  'rows', 'bind_col', 'bind_columns', 'dump_results', 'err', 'errstr', 'fetch']
+  );
+  
+  my %packages = ( "Test::MockDBI::Db" => "DBI::db", "Test::MockDBI::St" => "DBI::st" );
+  
+  foreach my $mock_package ( keys %packages ){
+    my %available_methods = ();
+    
+    #Takes the package as a parameter
+    my $map_subs = sub{
+      no strict 'refs';
+      my $p = shift;
+      return map{ s/^_dbi_//; $_ => $p . '::_dbi_' . $_ } grep { m/^_dbi_/ } grep { defined &{"$p\::$_"} } keys %{"$p\::"};
+    };
 
-  # Execute the sql query and fetch results
-  $dbh->prepare("select name, instrument from nephews");
-  while (my $href = $dbh->fetchrow_hashref()) {
-    print $href->{name} .
-          " plays the " .
-          $href->{instrument} . "\n";
+    %available_methods = $map_subs->($mock_package);
+    #Also find methods inherited by the package
+    my @isalist = eval( '@' . $mock_package . '::ISA');
+    die('Could not eval @' . $mock_package .'::ISA') if $@;
+    foreach my $isa_package ( @isalist ){
+      #Pray for no duplicates
+      my %isamethods = $map_subs->($isa_package);
+      @available_methods{keys %isamethods} = values %isamethods;
+    }
+
+    my %args = ();
+    foreach my $method ( @{ $dbi_methods{ $packages{$mock_package} } } ){
+      if(grep { m/^$method$/} keys %available_methods){
+        $args{$method} = eval( '\&' . $available_methods{$method});
+        die("Error during fake module setup. " . $@) if($@);
+      }else{
+        #Need to check if the method is inherited from a parent package
+        $args{$method} = eval('sub{ die \'Test::MockDBI-ERROR : Unsupported method ' . $method . '\'; } ');
+      }
+    }    
+    $mock->fake_module( $packages{ $mock_package }, %args );  
   }
-  __END__
+  $mock->fake_new( "DBI" );  
+  return 1;
+}
+##################################
+#
+# OO - Test MockDBI API
+#
+###################################
 
-Expected output:
+=head1 PUBLIC INTERFACE
 
-  Huey plays the cello
-  Dewey plays the trombone
-  Louie plays the piano
-
-
-=head1 DESCRIPTION
-
-Test::MockDBI provides a way to test DBI interfaces by
-creating rules for changing the DBI's behavior, then
-examining the standard output for matching patterns.
-
-Testing using Test::MockDBI is enabled by setting
-the DBI testing type to a non-zero value.  This can
-be done either by using a first program argument
-of "--dbitest[=TYPE]", or by using the class method
-Test::MockDBI::set_dbi_test_type().  (Supplying a first
-argument of "--dbitest[=TYPE]" often works well during
-testing.)  TYPE is a simple integer (/^\d+$/).  Supplying
-"--dbitest[=TYPE]" as a first argument works even if no
-other command-line processing is done, as Test::MockDBI
-does its own command-line processing to check for this
-first "--dbitest[=TYPE]" argument.  You will want to
-add "--dbitest[=TYPE]" during a BEGIN block before the
-"use Test::MockDBI", so that the mock DBI is initialized
-as early as possible.
-
-TYPE is optional, as a first argument of "--dbitest"
-will set the DBI testing type to 1 (one).  DBI testing
-is also disabled by "--dbitest=0" (although this
-may not be generally useful).  The class method
-Test::MockDBI::set_dbi_test_type() can also be used to
-set or change the DBI testing type.
-
-When DBI testing is disabled, DBI is used as you would
-expect.  This makes using Test::MockDBI transparent to
-your users.
-
-The one exportable constant is:
+  Methods available on the Test::MockDBI instance.
 
 =over 4
 
-=item MOCKDBI_WILDCARD
+=item reset()
 
-MOCKDBI_WILDCARD is the wildcard DBI testing type
-("--dbitest=TYPE"), used when the fetch*() functions should
-always return the same value no matter what DBI testing
-type has been set.
+  Method for reseting all mock returnvalues \ bad_params etc
+  
+=cut
 
-=back
-
-External methods are:
-
-=over 4
-
-=item get_dbi_test_type()
-
-Returns the numeric DBI test type. The type is 0 when not
-testing the DBI interface.
-
-=item set_dbi_test_type()
-
-Sets the numeric DBI test type. The type is set to 0 if the
-argument cannot be interpreted as a simple integer digit
-string (/^\d+$/).
+sub reset{
+  my ($self) = @_;
+  $self->{methods} = {};
+}
 
 =item bad_method()
 
-For the DBI method $method_name, when the DBI testing type
-is $dbi_testing_type and the current SQL matches the regex
-pattern in the string $matching_sql, make the function _fail
-(usually by returning undef).
+  This method is basically a alias for calling set_retval with the return value undef.
+  
+  Args:
+    $method_name              - The name of the method which should return undef
+    $matching_sql (Optional)  - The sql matching condition
+    
+  Returns:
+    On success: 1
+    On failure: undef
+  
+  The method also supports calling the method with the following arguments:
+  $method_name, $dbi_testing_type, $matching_sql
+  This will issue a warning as it is deprecated.
+
+=cut
+
+sub bad_method{
+  my $self = shift;
+  my %args = ();
+  
+  if(scalar(@_) == 3 && $_[0] =~ m/^[a-z_]+$/ && $_[1] =~ m/^\d+$/){
+    warn "You have called bad_method in an deprecated way. Please consult the documentation\n";
+    $args{method} = shift;
+    
+    #Throw away $dbi_testing_type
+    shift;    
+    my $matchingsql = shift;
+    if($matchingsql && $matchingsql ne ''){
+      my $regex = qr/$matchingsql/;
+      $args{sql} = $regex;
+      $instance->{legacy_regex}->{$regex} = $regex;
+    }
+  }else{
+    %args = @_;
+  }
+  
+  $args{retval} = undef;
+
+  return $self->set_retval( %args );  
+}
 
 =item bad_param()
+  
+  Args:
+    $p_value        - The value that will cause bind_param to return undef
+    $sql (Optional) - The sql matching condition
+    
+  Returns:
+    On success: 1
+    On failure: undef
+  
+  The method also supports calling the method with the following arguments:
+  $dbi_testing_type, $p_num, $p_value
+  This will issue a warning as it is deprecated.
 
-When the DBI testing type is $dbi_testing_type, make the
-fetch*() functions fail if one of their corresponding
-bind_param()s has parameter number $param_number with
-the value $param_value.
+=cut
 
-=item set_retval_array()
+sub bad_param{
+  my $self = shift;
+  my %args;
+  
+  #We assume its a legacy call if its length is 3 and arg 1 && 2 is numeric
+  if(scalar(@_) == 3 && $_[0] =~ m/^\d+$/ && $_[1] =~ m/^\d+$/){
+    warn "You have called bad_param in an deprecated way. Please consult the documentation\n";
+    #Throw away $dbi_testing_type as we dont use it anymoer
+    shift;
+    #Throw away $p_num as we dont use it anymore
+    shift;
+    $args{p_value} = shift;
+  }else{
+    %args = @_;
+  }
+  
+  if($args{sql}){
+    push( @{ $self->{methods}->{bind_param}->{sqls}->{$args{sql}}->{bad_params}}, $args{p_value});
+  }else{
+    push( @{ $self->{methods}->{bind_param}->{global_bad_params} }, $args{p_value});
+  }
+  
+  return 1;
+}
 
-When the DBI testing type is $dbi_testing_type and
-the current SQL matches the pattern in the string
-$matching_sql, fetch() and fetchrow_array() return the
-contents of the array @retval.  If retval is actually a
-CODEREF, the array returned from calling that subroutine
-will be returned instead.
+=item set_retval()
 
-=item set_retval_scalar()
+  Method for setting a return value for the specific method.
+  
+  Args:(Keys in a hash)
+    method             - The method that should return the provided value
+    retval             - The data which should be returned
+    sql    (Optional)  - Matching sql. The return value will only be
+                          returned for the provided method if the sql matches
+                          a regex compiled by using this string
 
-When the DBI testing type is $dbi_testing_type and the
-current SQL matches the pattern in the string $matching_sql,
-fetchall_arrayref(), fetchrow_arrayref(), fetchall_hashref(),
-fetchrow_hashref(), and fetchrow() return the scalar value
-$retval . If retval is actually a CODEREF, the scalar
-returned from calling that subroutine will be returned
-instead .
+  Returnvalues:
+    On success: 1
+    On failure: undef
+  
+  Example usage:
+  
+    #fetchrow_hashref will shift one hashref from the list each time its called if the sql matches the sql provided, this will happend
+    #until the return list is empty.
+    $inst->set_retval( method => 'fetchrow_hashref',
+                      retval => [ { letter => 'a' }, { letter => 'b' }, { letter => 'c' }  ],
+                      sql => 'select * from letters' )
+    
+    #execute will default return undef
+    $inst->set_retval( method => 'execute', retval => undef)
+    
+    #Execute will return 10 for sql 'select * from cars'
+    $inst->set_retval( method => 'execute', retval => undef);
+    $inst->set_retval( method => 'execute', retval => 10, sql => 'select * from cars');
+    
+=cut
 
-=item set_rows()
+sub set_retval{
+  my ($self, %args) = @_;
+  
+  my $method = $args{method};
+  my $sql = $args{sql} if $args{sql};
+  
+  unless($method){
+    warn "No method provided\n";
+    return;
+  }
+  
+  if(ref($method)){
+    warn "Parameter method must be a scalar string\n";
+    return;
+  } 
 
-When the DBI testing type is $dbi_testing_type and
-the current SQL matches the pattern in the string
-$matching_sql, rows() returns the scalar value $rows.
-If retval is actually a CODEREF, the scalar returned from
-calling that subroutine will be returned instead.
+  if($sql && (ref($sql) && ref($sql) ne 'Regexp')){
+    warn "Parameter SQL must be a scalar string or a precompiled regex\n";
+    return;
+  }
+  
+  unless( exists $args{retval} ){
+    warn "No retval provided\n";
+    return;
+  }
+    
+  $self->{methods}->{$method} = {} if !$self->{methods}->{$method};
+  
+  if($sql){
+    $self->{methods}->{$method}->{sqls}->{$sql}->{retval} = Clone::clone($args{retval});
+    $self->{methods}->{$method}->{sqls}->{$sql}->{errstr} = $args{errstr} if $args{errstr};
+    $self->{methods}->{$method}->{sqls}->{$sql}->{err} = $args{err} if $args{err};
+  }else{
+    $self->{methods}->{$method}->{default}->{retval} = Clone::clone($args{retval});
+    $self->{methods}->{$method}->{default}->{errstr} = $args{errstr} if $args{errstr};
+    $self->{methods}->{$method}->{default}->{err} = $args{err} if $args{err};
+  }
+  return 1;
+}
 
-=item set_errstr()
+=item set_inout_value()
 
-Allows I<errstr> to be set and unset at runtime.
+  Special method for handling inout params.
+  In this method you can provided the value that the inout param should have
+  after execute is called.
+  
+  Args:
+    $sql    - The sql that this rule should apply for
+    $p_num  - The parameter number of the inout parameter
+    $value  - The value that the inout parameter should have after execute
+    
+  Returns:
+    On success: 1
+    On failure: undef
+    
+  Example:
+  
+  
 
-=item get_instance()
+=cut
 
-Returns the Test::MockDBI instance.  This is a singleton.
-Will print debug messages to stdout if given a defined argument.
+sub set_inout_value{
+  my ($self, $sql, $p_num, $value) = @_;
+  
+  if(!$sql || ref($sql)){
+    warn "Parameter SQL must be a scalar string\n";
+    return;
+  }
+  if($p_num !~ m/^\d+$/){
+    warn "Parameter p_num must be numeric\n";
+    return;
+  }
+  
+  $self->{inoutvalues}->{$sql}->{$p_num} = $value;
+  return 1;
+}
 
 =back
 
-=head1 NOTES
+=head1 PRIVATE INTERFACE
 
-A good source of Test::MockDBI examples is how the t/*.t
-test programs works.
+  Methods used by the package internally. Should not be called from an external package.
 
-bad_method() forces developers to use a different DBI
-testing type ("--dbitest=TYPE") for each different SQL
-pattern for a DBI method.  This can be construed as
-a feature.  (The workaround to this feature is to use
-MOCKDBI_WILDCARD.)
+=over 4
 
-DBI fetch() and fetchrow_array() will return the undef
-value if the specified return value is a 1-element array
-with undef as the only element.  I don't think this should
-prove a major obstacle in testing.  It was coded this way
-due to how Perl currently handles a return value of undef
-when an array is expected, which is a one-element array
-with undef as the only element.
+=item _clear_dbi_err_errstr()
 
-MOCKDBI_WILDCARD is only supported for the fetch*()
-return value setting methods, set_retval_scalar() and
-set_retval_array().  It probably does not make sense for
-the other external methods, as they are for creating DBI
-failures (and how often do you want your code to fail for
-all DBI testing types?)
+  Helper method used by the fake DBI::st and DBI::db to clear out
+  the $obj->{err} and $obj->{errstr} on each method call.
+  
+  Should not be called from an external script\package.
 
-If for some strange reason you should be installing
-Test::MockDBI into a system with DBI but without any
-DBD drivers (apart from DBD drivers bundled with DBI),
-you can use:
-    perl samples/DBD-setup.pl
-    cp samples/DBI.cfg .
-to create a sample DBM database (zipcodes.*) for testing
-Test::MockDBI (DBD::DBM ships with DBI).
+=cut
 
-DBI fetchrow() is supported, although it is so old it
-is no longer documented in the mainline DBI docs.
+sub _clear_dbi_err_errstr{
+  my ($self, $obj) = @_;
+  
+  $obj->{errstr} = undef;
+  $obj->{err} = undef;
+  $DBI::errstr = undef;
+  $DBI::err = undef;
+  return 1;
+}
 
-=head1 SEE ALSO
+=item _set_dbi_err_errstr()
 
-DBI, Test::MockObject::Extends, Test::Simple, Test::More,
-perl(1)
+  Helper method used by the fake DBI::st and DBI::db to set the
+  $obj->{err}, $obj->{errstr}, $DBI::err and $DBI::errstr.
+  This method also handles RaiseError and PrintError attributes.
+  
+  Args:
+    $obj - Instance of DBI::st or DBI::db
+    %args - A hash with the following keys:
+      err     - The numeric error code to be set
+      errstr  - The user friendly DBI error message.
+      
+  Returns:
+    On success : 1
+    On failure : undef
 
-DBD::Mock (another approach to testing DBI applications)
+=cut
 
-DBI trace() (still another approach to testing DBI
-applications)
+sub _set_dbi_err_errstr{
+  my ($self, $obj, %args) = @_;
+  if($args{err}){
+    $DBI::err = $args{err};
+    $obj->{err} = $args{err};
+  }
+  
+  if($args{errstr}){
+    $DBI::errstr = $args{errstr};
+    $obj->{errstr} = $args{errstr};
+  }
+  
+  print $obj->{errstr} . "\n" if $obj->{PrintError} && $obj->{errstr};
+  die( (($obj->{errstr}) ? $obj->{errstr} : '') ) if $obj->{RaiseError};
+  return 1;
+}
 
-IO::String (for capturing standard output)
+=item _set_fake_dbi_err_errstr
 
-=head1 CAVEAT
+=cut
 
-=head2 fetch*_hashref does not allow modification of returned data
-set.
+sub _set_fake_dbi_err_errstr{
+  my ($self, $obj) = @_;
+  my $sql = $obj->{Statement};
 
-This means you must copy-by-value if you wish to modify the data
-before returning to the calling client.
+  #This should be refactored out in a helper method
+  my @caller = caller(1);
+  my $method = $caller[3];
+  
+  $method =~ s/Test::MockDBI::(St|Db)::_dbi_//;
+
+  #No special return value is set for this method
+  return if !exists($self->{methods}->{$method});
+  
+  
+  #Search to see if the sql has a specific
+  if($sql){
+    foreach my $key (keys %{$self->{methods}->{$method}->{sqls}}){
+      #This introduces the bug that the first hit will be the one used.
+      #This is done to be complient with the regex functionality in the earlier versions
+      #of Test::MockDBI
+      if( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) ||  $sql =~ m/\Q$key\E/ms){
+        $self->_set_dbi_err_errstr($obj,
+          err => $self->{methods}->{$method}->{sqls}->{$key}->{err},
+          errstr => $self->{methods}->{$method}->{sqls}->{$key}->{errstr}
+        );
+        return 1;
+      }
+    }    
+  }
+  #If $sql is not or we have no matching sql we return the default if it is set
+  if(exists $self->{methods}->{$method}->{default}->{err} && exists $self->{methods}->{$method}->{default}->{errstr}){
+    $self->_set_dbi_err_errstr($obj,
+      err => $self->{methods}->{$method}->{default}->{err},
+      errstr => $self->{methods}->{$method}->{default}->{errstr});
+    return 1;
+  }  
+
+  return ;
+}
+
+=item _has_inout_value()
+
+  Helper method used by the DBI::db and DBI::st packages.
+  The method searches to see if there is specified a value for a
+  inout variable.
+  
+  If called in SCALAR context it return 1/undef based on if the
+  parameter bound as $p_num has a predefined return value set.
+  
+  If called in LIST context the method returns and array with
+  1/undef in position 0 which indicates the same as when the method
+  is called in SCALAR context. The second element of the list is the
+  value that should be applied to the inout parameter.
+
+=cut
+
+sub _has_inout_value{
+  my ($self, $sql, $p_num) = @_;
+  
+  foreach my $key (keys %{ $self->{inoutvalues} }){
+    if( $sql =~ m/\Q$key\E/ms){
+      if($self->{inoutvalues}->{$key}->{$p_num}){
+        return (wantarray) ? (1, $self->{inoutvalues}->{$key}->{$p_num}) : 1;
+      }
+    } 
+  }
+  return;
+}
+
+=item _has_fake_retval()
+  
+  Method for identifing if a method has a predefined return value set.
+  If the SQL parameter is provided
+  this will have precedence over the default value.
+  
+  If the method is called in SCALAR context it will return 1\undef based on
+  if the method has a predefined return value set.
+  
+  If the method is called in LIST context it will return a list with 1/undef at
+  index 0 which indicates the same as when called in SCALAR context. index 1 will
+  contain a reference to the actual return value that should be returned by the method.
+  This value may be undef.
+  
+=cut
+
+sub _has_fake_retval{
+  my ($self, $sql) = @_;
+  my @caller = caller(1);
+  my $method = $caller[3];
+  
+  $method =~ s/Test::MockDBI(::(St|Db))?::_dbi_//;
+  
+  #No special return value is set for this method
+  return if !exists($self->{methods}->{$method});
+  
+  
+  #Search to see if the sql has a specific
+  if($sql){
+    foreach my $key (keys %{$self->{methods}->{$method}->{sqls}}){
+      #This introduces the bug that the first hit will be the one used.
+      #This is done to be complient with the regex functionality in the earlier versions
+      #of Test::MockDBI
+      if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
+         exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
+        if(wantarray()){
+          return (1, $self->{methods}->{$method}->{sqls}->{$key}->{retval});
+        }else{
+          return 1;
+        }
+      }      
+    }    
+  }
+  #If $sql is not or we have no matching sql we return the default if it is set
+  if(exists $self->{methods}->{$method}->{default}->{retval}){
+    return (wantarray()) ? (1, $self->{methods}->{$method}->{default}->{retval}) : undef;
+  }
+  
+  return;
+}
+
+=item _is_bad_bind_param()
+  
+  Method for identifing if a bind parameters value is predefined as unwanted.
+  The configuration for the provided SQL will have precedence over the default configured behaviour.
+  
+  When called it will return 1\undef based on
+  if the provided value should make the bind_param method fail.
+  
+=cut
+
+sub _is_bad_bind_param{
+  my ($self, $sql, $param) = @_;
+  my @caller = caller(1);
+  my $method = $caller[3];
+  
+  $method =~ s/Test::MockDBI::(St|Db)::_dbi_//;
+  
+  foreach my $key (keys %{ $self->{methods}->{$method}->{sqls} }){
+    #This introduces the bug that the first hit will be the one used.
+    #This is done to be complient with the regex functionality in the earlier versions
+    #of Test::MockDBI
+    
+    if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) ){
+      #If no bad params is set for this sql do nothing and continue the loop.
+      if($self->{methods}->{$method}->{sqls}->{$key}->{bad_params} &&
+         ref($self->{methods}->{$method}->{sqls}->{$key}->{bad_params}) eq 'ARRAY'){
+        
+        foreach my $bad_param ( @{ $self->{methods}->{$method}->{sqls}->{$key}->{bad_params} }){
+          if(Scalar::Util::looks_like_number($param) && Scalar::Util::looks_like_number($bad_param)){
+            return 1 if $param == $bad_param;
+          }
+          return 1 if $param eq $bad_param;
+        }
+      }
+    }
+  }
+  
+  if(exists $self->{methods}->{$method}->{global_bad_params} && ref($self->{methods}->{$method}->{global_bad_params}) eq 'ARRAY'){
+    foreach my $bad_param ( @{ $self->{methods}->{$method}->{global_bad_params} }){
+      if(Scalar::Util::looks_like_number($param) && Scalar::Util::looks_like_number($bad_param)){
+        return 1 if $param == $bad_param;
+      }
+      return 1 if $param eq $bad_param;
+    }    
+  }  
+  return;
+}
+
+=back
+
+=head1 CLASS INTERFACE
+
+=over 4
+
+=item get_instance()
+
+  Method for retrieving the current Test::MockDBI instance
+  
+=cut
+
+sub get_instance{
+  return $instance;
+}
+
+=back
+
+=cut
+
+####################################
+#
+# Mocked DBI API
+# (Method used to mock the DBI package's methods)
+#
+####################################
+
+=pod _dbi__concat_hash_sorted
+
+  This is basically a copy\paste from the DBI package itself.
+  The method is used inside the prepare_cached method
+
+=cut
+
+sub _dbi__concat_hash_sorted {
+  my ( $hash_ref, $kv_separator, $pair_separator, $use_neat, $num_sort ) = @_;
+  # $num_sort: 0=lexical, 1=numeric, undef=try to guess
+
+  return undef unless defined $hash_ref;
+  die "hash is not a hash reference" unless ref $hash_ref eq 'HASH';
+  my $keys = DBI::_get_sorted_hash_keys($hash_ref, $num_sort);
+  my $string = '';
+  for my $key (@$keys) {
+    $string .= $pair_separator if length $string > 0;
+    my $value = $hash_ref->{$key};
+    if ($use_neat) {
+      $value = DBI::neat($value, 0);
+    }
+    else {
+      $value = (defined $value) ? "'$value'" : 'undef';
+    }
+    $string .= $key . $kv_separator . $value;
+  }
+  return $string;
+}
+
+=pod _dbi__get_sorted_hash_keys
+
+  This is basically a copy\paste from the DBI package itself.
+  The method is used inside the prepare_cached method
+
+=cut
+
+sub _dbi__get_sorted_hash_keys {
+  my ($hash_ref, $num_sort) = @_;
+  if (not defined $num_sort) {
+    my $sort_guess = 1;
+    $sort_guess = (not DBI::looks_like_number($_)) ? 0 : $sort_guess
+        for keys %$hash_ref;
+    $num_sort = $sort_guess;
+  }
+  
+  my @keys = keys %$hash_ref;
+  no warnings 'numeric';
+  my @sorted = ($num_sort)
+      ? sort { $a <=> $b or $a cmp $b } @keys
+      : sort    @keys;
+  return \@sorted;
+}
+
+=pod _dbi_looks_like_number
+
+  This is basically a copy\paste from the DBI package itself.
+  The method is used inside the prepare_cached method
+
+=cut
+
+sub _dbi_looks_like_number {
+  my @new = ();
+  for my $thing(@_) {
+    if (!defined $thing or $thing eq '') {
+        push @new, undef;
+    }
+    else {
+        push @new, ($thing =~ /^([+-]?)(?=\d|\.\d)\d*(\.\d*)?([Ee]([+-]?\d+))?$/) ? 1 : 0;
+    }
+  }
+  return (@_ >1) ? @new : $new[0];
+}
+
+=pod _dbi_connect
+
+  Mocked DBI->connect method.
+  
+  The method takes the same arguments as the usual DBI->connect method.
+  It returns a $dbh which has ref DBI::db
+  
+=cut
+
+sub _dbi_connect{
+  my ($self, $dsn, $user, $pass, $attr) = @_;
+  
+  my $statement = 'CONNECT TO $dsn AS $user WITH $pass';
+  
+  my ($status, $retval) = $instance->_has_fake_retval($statement);
+  if($status){
+    if(ref($retval) eq 'CODE'){
+      return $retval->();
+    }
+    return $retval;
+  }
+  
+  my $object = bless({
+    AutoCommit => 1,
+    Driver => undef,
+    Name => undef,
+    Statement => $statement,
+    RowCacheSize => undef,
+    Username => undef,
+    
+    #Common
+    Warn => undef,
+    Active => undef,
+    Executed => undef,
+    Kids => 0,
+    ActiveKids => undef,
+    CachedKids => undef,
+    Type => 'db',
+    ChildHandles => [],
+    CompatMode => undef,
+    InactiveDestroy => undef,
+    AutoInactiveDestroy => undef,
+    PrintWarn => undef,
+    PrintError => undef,
+    RaiseError => undef,
+    HandleError => undef,
+    HandleSetErr => undef,
+    ErrCount => undef,
+    ShowErrorStatement => undef,
+    TraceLevel => undef,
+    FetchHashKeyName => undef,
+    ChopBlanks => undef,
+    LongReadLen => undef,
+    LongTruncOk => undef,
+    TaintIn => undef,
+    TaintOut => undef,
+    Taint => undef,
+    Profile => undef,
+    ReadOnly => undef,
+    Callbacks => undef,
+  }, "DBI::db");
+  
+  foreach my $key (keys %{ $attr }){
+    $object->{$key} = $attr->{$key} if(exists($object->{$key}));
+  }
+  
+  return $object;
+  
+}
+
+##########################################################
+#
+# DEPRECATED OLD INTERFACE
+#
+###########################################################
+sub set_retval_array{
+  warn 'set_retval_array is deprecated. Please use $instance->set_retval instead' . "\n";
+  my ($self, $dbi_testing_type, $matching_sql, @retval) = @_;
+  
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;
+  
+  if(ref($retval[0]) eq 'CODE'){
+    return $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => $retval[0]);
+  }else{
+    return $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => [ \@retval ]);
+  } 
+}
+sub set_retval_scalar{
+  warn 'set_retval_scalar is deprecated. Please use $instance->set_retval instead' . "\n";
+  my ($self, $dbi_testing_type, $matching_sql, $retval) = @_;
+  
+  my @methods = qw(fetchall_arrayref fetchrow_arrayref fetchall_hashref fetchrow_hashref);
+
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;
+
+  #try to find out if the $retval is an arrayref only, or an arrayref of arrayref
+  # or arrayref of hashrefs
+  if(ref($retval) eq 'ARRAY'){
+    my $item = $retval->[0];
+    
+    if(ref($item) eq 'ARRAY'){
+      #We most likely have an arrayref of arrayrefs
+      #it should be applied to fetchall_arrayref and fetchrow_arrayref
+      $instance->set_retval( method => 'fetchall_arrayref', sql => $regex, retval => $retval);
+      $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => $retval);
+    }elsif(ref($item) eq 'HASH'){
+      #We most likely have an arrayref of hashrefs
+      #it should be applied to fetchall_hashrefref and fetchrow_hashref
+      $instance->set_retval( method => 'fetchall_hashref', sql => $regex, retval => $retval);
+      $instance->set_retval( method => 'fetchrow_hashref', sql => $regex, retval => $retval);
+    }elsif(!ref($item)){
+      #We only have 1 arrayref with values. This was used in the old Test::MockDBI tests
+      #It was passed because you only called for instance fetchrow_arrayref once
+      #We will wrap it in an array and hope for the best
+      $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => [$retval]);
+    }else{
+      #We dont know, set the same retval for EVERYONE!
+      foreach my $method ( @methods ){
+        $instance->set_retval( method => $method, sql => $regex, retval => $retval);
+      }      
+    }
+    
+  }elsif(ref($retval) eq 'HASH'){
+    $instance->set_retval( method => 'fetchrow_hashref', sql => $regex, retval => [$retval]);
+  }else{
+    #We dont know, set the same retval for EVERYONE!
+    foreach my $method ( @methods ){
+      $instance->set_retval( method => $method, sql => $regex, retval => $retval);
+    }          
+  }
+  return 1;
+}
+sub set_rows{
+  warn 'set_rows is deprecated. Please use $instance->set_retval instead' . "\n";
+  my ($self, $dbi_testing_type, $matching_sql, $rows) = @_;
+  
+  my $regex = qr/$matching_sql/;
+  $instance->{legacy_regex}->{$regex} = $regex;  
+  
+  return $instance->set_retval( method => 'rows', sql => $regex, retval => $rows );
+}
+
+sub set_errstr{
+  warn "set_errstr is deprecated. Please use $instance->set_retval instead \n";
+  return;
+}
+sub _is_bad_param{
+  warn "_is_bad_param is deprecated and no longer functional. It allways returns 1\n";
+  return 1;
+}
+sub set_dbi_test_type{
+  warn "set_dbi_test_type is deprecated. Does nothing!\n";
+  return 1;
+}
+sub get_dbi_test_type{
+  warn "get_dbi_test_type is deprecated. Does nothing!\n";
+  return 1;
+}
 
 =head1 AUTHOR
 
@@ -1078,3 +844,4 @@ This code is released under the same licenses as Perl
 itself.
 
 =cut
+
