@@ -1,20 +1,9 @@
-- Move database-handle-specific data to the mock DBI 
-  database handle object, so that different database
-  handles can have different Test::MockDBI configurations.
-  This will probably involve changing the Test::MockDBI API
-  to include the database handle as an argument.   Also, the
-  DBI functions that return a statement handle will need to
-  be modified to return the correct mock DBI database handle.
+- Implement some sort of plugin scheme so that you
+  can modify functionality based on the dbtype provided in the dsn.
+  Ala DBD::mysql. This will solve the issue of different quoting.
 
-- Add code so the debug output of Test::MockDBI can go to different
-  places rather than just standard output.  This would allow
-  use of Test::MockDBI in environments where examining
-  standard output is impractical at best, like Apache modules.
-  IO::String would help in redirecting output to strings.
+- Better tests.
 
-- Increase the number of DBI methods mocked up.
+- Increase number of DBI methods mocked up.
 
-- Figure out how DBI::quote() should work when mocked-up.
-
-- Could Test::MockDBI and DBD::Mock work together?  Does this
-  even make any sense?
+- Make sure more of the dbh/sth attributes works as expected.
