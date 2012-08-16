@@ -28,7 +28,7 @@ my $md = Test::MockDBI::get_instance();
 
 {
   #Testing bad_method on the database handler
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
+  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1', { AutoCommit => undef }); #AutoCommit => undef to silence warnings!
   cmp_ok(ref($dbh), 'eq', 'DBI::db', 'Ref of dbh is DBI::db');
 
   my @methods = qw( disconnect prepare prepare_cached do commit rollback );
@@ -49,7 +49,7 @@ my $md = Test::MockDBI::get_instance();
   $md->reset();
   
   #New interface
-  is($md->bad_method($_, ""), 1, q{Expect 1}) for(@methods);
+  is($md->bad_method( method => $_ ), 1, q{Expect 1}) for(@methods);
 
   #Executing bad methods
   is(eval('$dbh->' . $_ . '();'), undef, $_ . ' failed successfully') for(@methods);
@@ -65,7 +65,7 @@ my $md = Test::MockDBI::get_instance();
 
 {
   #Testing bad_method in the statement handler
-  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1');
+  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1', { AutoCommit => undef }); #AutoCommit => undef to silence warnings
   my $sth = $dbh->prepare('select something from somewhere where anything = ?');
   
   my @methods = qw( rows bind_param execute finish fetchall_arrayref fetchrow_arrayref fetchrow_array );
@@ -89,7 +89,7 @@ my $md = Test::MockDBI::get_instance();
   
 
   #New interface
-  is($md->bad_method($_, ""), 1, q{Expect 1}) for(@methods);
+  is($md->bad_method( method => $_), 1, q{Expect 1}) for(@methods);
 
   #Executing bad methods
   foreach my $method (@methods){

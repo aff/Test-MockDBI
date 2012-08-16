@@ -158,7 +158,9 @@ sub _dbi_execute{
   #   - The Active attribute is set to false either if finish is called on the statementhandler or disconnect is called on the dbh
   #
   
+  #Updating attributes
   $self->{Active} = 1 if $self->{Statement} =~ m/^select/i;
+  $self->{Executed} = 1;
   #Update the parent activekids flag
   Test::MockDBI::Db::_update_active_kids($self->{Database});
   
@@ -168,6 +170,11 @@ sub _dbi_execute{
       ${ $self->{ParamValues}->{$p_num} } = $retval if $status;
     }
     
+  }
+
+  #Not enough parameters bound
+  if( $self->{NUM_OF_PARAMS} != scalar(keys %{ $self->{ParamValues} })){
+    return '0E0';
   }
   
   #Number of affected rows is not known
@@ -179,11 +186,18 @@ sub _dbi_fetchrow_arrayref{
   
   $mockdbi->_clear_dbi_err_errstr($self);
   
+  #return if we are not executed
+  return if( !$self->{Executed} );  
+  
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
     $mockdbi->_set_fake_dbi_err_errstr($self);
     
     if(ref($retval) eq 'CODE'){
+      my @caller = caller(1);
+      if($caller[3] && $caller[3] =~ m/fetchrow_array$/){
+        return $retval;
+      }
       return $retval->($self);
     }
   }  
@@ -206,10 +220,16 @@ sub _dbi_fetchrow_arrayref{
   return;
 }
 
+sub _dbi_fetch{
+  return $_[0]->fetchrow_arrayref();
+}
+
 sub _dbi_fetchrow_array{
   my ($self) = @_;
   my $row = $self->fetchrow_arrayref();
+  return if !$row;
   return @{$row} if ref($row) eq 'ARRAY';
+  return $row->($self) if ref($row) eq 'CODE';
   return $row;
 }
 
@@ -217,6 +237,9 @@ sub _dbi_fetchrow_hashref{
   my ($self) = @_;
   
   $mockdbi->_clear_dbi_err_errstr($self);
+  
+  #return if we are not executed
+  return if( !$self->{Executed} );  
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
@@ -250,6 +273,9 @@ sub _dbi_fetchall_arrayref{
   my ($self) = @_;
   
   $mockdbi->_clear_dbi_err_errstr($self);
+  
+  #return if we are not executed
+  return if( !$self->{Executed} );  
   
   my ($status, $retval) = $mockdbi->_has_fake_retval($self->{Statement});
   if($status){
