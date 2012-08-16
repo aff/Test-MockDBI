@@ -1,5 +1,4 @@
-package
-Test::MockDBI;
+package Test::MockDBI;
 
 use 5.008;                              # minimum Perl is V5.8.0
 use strict;
@@ -845,3 +844,4 @@ itself.
 
 =cut
 
+1;
