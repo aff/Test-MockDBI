@@ -2,10 +2,15 @@ Revision history for Perl extension Test::MockDBI.
 0.70 Tue Aug 14
     - Almost completely rewritten the code
     - Added support for more mocked methods
-    - Test::MockDBI now returns the correct object types (DBI::db & DBI::st)
-    - DBI::db methods is not available throught DBI::st object and vica versa
+    - Test::MockDBI now returns the correct object types (DBI::db &
+      DBI::st)
+    - DBI::db methods is not available throught DBI::st object and
+      vica versa
     - Deleted old tests, and written new ones.
-    - Added mockup for all dbi object attributes (Not all of them actually have a value yet)
+    - Added mockup for all dbi object attributes (Not all of them
+      actually have a value yet)
+    - Handle "Stringification of regexes has changed" (see
+      perl5140delta).  Both older and new version of perl should work.
 
 0.66  Tue July  24 11:25:08 CET 2012
     - The database handle returns DBI::db instead of DBI
@@ -16,15 +21,15 @@ Revision history for Perl extension Test::MockDBI.
       pretending to work.
     - Added DBI::db::rollback()
     - Supports call to the method err
-     
+
 0.65  Mon Feb  7 07:46:08 CET 2011
     - Added LICENSE = perl to Makefile.PL.
     - Removed duplicate 'use Data::Dumper' (See cpanratings).
 
 0.64  Tue Feb  3 13:37:20 CET 2009
-    - Support non-interactive testing with 
+    - Support non-interactive testing with
         PERL_MM_USE_DEFAULT, and/or
-        AUTOMATED_TESTING 
+        AUTOMATED_TESTING
 
 0.63  Wed Dec 31 14:29:14 CET 2008
     - Added support for DBI::ping (bug #14055)
