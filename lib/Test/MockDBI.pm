@@ -50,7 +50,7 @@ sub import{
   $instance = bless {
     methods => {
     },
-    legacy_regex => {}, #To support the old regex sqls. Should be removed in a later version!!!
+    _regexes => {}
   }, __PACKAGE__;  
   
   Test::MockDBI::Db->import($instance);
@@ -167,7 +167,6 @@ sub bad_method{
     if($matchingsql && $matchingsql ne ''){
       my $regex = qr/$matchingsql/;
       $args{sql} = $regex;
-      $instance->{legacy_regex}->{$regex} = $regex;
     }
   }else{
     %args = @_;
@@ -212,6 +211,7 @@ sub bad_param{
   
   if($args{sql}){
     push( @{ $self->{methods}->{bind_param}->{sqls}->{$args{sql}}->{bad_params}}, $args{p_value});
+    $self->{_regexes}->{$args{sql}} = (ref($args{sql}) eq 'Regexp') ? $args{sql} : qr/\Q$args{sql}\E/;
   }else{
     push( @{ $self->{methods}->{bind_param}->{global_bad_params} }, $args{p_value});
   }
@@ -283,6 +283,7 @@ sub set_retval{
     $self->{methods}->{$method}->{sqls}->{$sql}->{retval} = Clone::clone($args{retval});
     $self->{methods}->{$method}->{sqls}->{$sql}->{errstr} = $args{errstr} if $args{errstr};
     $self->{methods}->{$method}->{sqls}->{$sql}->{err} = $args{err} if $args{err};
+    $self->{_regexes}->{$sql} = (ref($sql) eq 'Regexp') ? $sql : qr/\Q$sql\E/;
   }else{
     $self->{methods}->{$method}->{default}->{retval} = Clone::clone($args{retval});
     $self->{methods}->{$method}->{default}->{errstr} = $args{errstr} if $args{errstr};
@@ -414,7 +415,7 @@ sub _set_fake_dbi_err_errstr{
       #This introduces the bug that the first hit will be the one used.
       #This is done to be complient with the regex functionality in the earlier versions
       #of Test::MockDBI
-      if( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) ||  $sql =~ m/\Q$key\E/ms){
+      if( $sql =~ $self->{_regexes}->{$key}){
         $self->_set_dbi_err_errstr($obj,
           err => $self->{methods}->{$method}->{sqls}->{$key}->{err},
           errstr => $self->{methods}->{$method}->{sqls}->{$key}->{errstr}
@@ -500,9 +501,9 @@ sub _has_fake_retval{
       #   exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
 	
 	# to handle old and new versions of PERL
-         my $modifiers = ($key =~ /\Q(?^/) ? "?^" : "?-xism";
+         my $modifiers = ($key =~ /\Q(?^/) ? "^" : "-xism";
       
-       if( ( ($key =~ m/^\Q($modifiers:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
+       if( $sql =~ $self->{_regexes}->{$key} &&
          exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){  
         
 		if(wantarray()){
@@ -543,7 +544,7 @@ sub _is_bad_bind_param{
     #This is done to be complient with the regex functionality in the earlier versions
     #of Test::MockDBI
     
-    if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) ){
+    if( $sql =~ $self->{_regexes}->{$key} ){
       #If no bad params is set for this sql do nothing and continue the loop.
       if($self->{methods}->{$method}->{sqls}->{$key}->{bad_params} &&
          ref($self->{methods}->{$method}->{sqls}->{$key}->{bad_params}) eq 'ARRAY'){
@@ -749,7 +750,6 @@ sub set_retval_array{
   my ($self, $dbi_testing_type, $matching_sql, @retval) = @_;
   
   my $regex = qr/$matching_sql/;
-  $instance->{legacy_regex}->{$regex} = $regex;
   
   if(ref($retval[0]) eq 'CODE'){
     return $instance->set_retval( method => 'fetchrow_arrayref', sql => $regex, retval => $retval[0]);
@@ -764,7 +764,6 @@ sub set_retval_scalar{
   my @methods = qw(fetchall_arrayref fetchrow_arrayref fetchall_hashref fetchrow_hashref);
 
   my $regex = qr/$matching_sql/;
-  $instance->{legacy_regex}->{$regex} = $regex;
 
   #try to find out if the $retval is an arrayref only, or an arrayref of arrayref
   # or arrayref of hashrefs
@@ -808,7 +807,6 @@ sub set_rows{
   my ($self, $dbi_testing_type, $matching_sql, $rows) = @_;
   
   my $regex = qr/$matching_sql/;
-  $instance->{legacy_regex}->{$regex} = $regex;  
   
   return $instance->set_retval( method => 'rows', sql => $regex, retval => $rows );
 }

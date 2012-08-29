@@ -5,7 +5,7 @@
 use strict;      # better compile-time checking
 use warnings;    # better run-time checking
 
-use Test::More tests => 75;    # advanced testing
+use Test::More tests => 76;    # advanced testing
 use File::Spec::Functions;
 use lib catdir qw ( blib lib );            # use local module
 use Test::MockDBI;             # what we are testing
@@ -99,6 +99,14 @@ my $md = Test::MockDBI::get_instance();
   }
   $md->reset();  
     
+}
+{
+  #Testing bad_method with sql
+  $md->bad_method( sql => qr/.*/, method => 'prepare' );
+  my $dbh = DBI->connect('DBI:mysql:somedb', 'user1', 'password1', { AutoCommit => undef }); #AutoCommit => undef to silence warnings
+  my $sth = $dbh->prepare('select something from somewhere where anything = ?');  
+  ok(!$sth, '$sth should be undef');
+  $md->reset();
 }
 done_testing();
 __END__
