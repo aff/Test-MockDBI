@@ -8,7 +8,7 @@ use Clone;
 use Test::MockObject::Extends;
 use Scalar::Util;
 
-our $VERSION = '0.70';
+our $VERSION = '0.66_02';
 
 my $instance = undef;
 
@@ -239,7 +239,7 @@ sub bad_param{
     #fetchrow_hashref will shift one hashref from the list each time its called if the sql matches the sql provided, this will happend
     #until the return list is empty.
     $inst->set_retval( method => 'fetchrow_hashref',
-                      retval => [ { letter => 'a' }, { letter => 'b' }, { letter => 'c' }  ],
+                      retval => [ { letter => 'a' }, { letter => 'b' }, { letter => 'c' }  ],
                       sql => 'select * from letters' )
     
     #execute will default return undef
@@ -496,13 +496,20 @@ sub _has_fake_retval{
       #This introduces the bug that the first hit will be the one used.
       #This is done to be complient with the regex functionality in the earlier versions
       #of Test::MockDBI
-      if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
-         exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
-        if(wantarray()){
-          return (1, $self->{methods}->{$method}->{sqls}->{$key}->{retval});
-        }else{
-          return 1;
-        }
+     # if( ( ($key =~ m/^\(\?\^:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
+      #   exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){
+	
+	# to handle old and new versions of PERL
+         my $modifiers = ($key =~ /\Q(?^/) ? "?^" : "?-xism";
+      
+       if( ( ($key =~ m/^\Q($modifiers:/ && $sql =~ $instance->{legacy_regex}->{$key}) || $sql =~ m/\Q$key\E/ms ) &&
+         exists $self->{methods}->{$method}->{sqls}->{$key}->{retval}){  
+        
+		if(wantarray()){
+	          return (1, $self->{methods}->{$method}->{sqls}->{$key}->{retval});
+        	}else{
+	          return 1;
+       		 }
       }      
     }    
   }

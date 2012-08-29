@@ -14,7 +14,7 @@ WriteMakefile(
   'LICENSE'       => 'perl',
   'META_MERGE'    => {
     resources => { repository => 'https://github.com/aff/Test-MockDBI', },
-    keywords => [ qw [Test Mock DBI database] ],
+    keywords => [qw [Test Mock DBI database]],
   },
   'BUILD_REQUIRES' => { 'CPAN::Meta' => 0, },
   'PREREQ_PM'      => {
@@ -23,9 +23,10 @@ WriteMakefile(
     'Test::More'            => 0,
     'File::Spec::Functions' => 0,
     'Test::Warn'            => 0,
-		'Scalar::Util'					=> 0,
-		'Carp'									=> 0,
-		'Clone'									=> 0
+    'Test::Differences'     => 0,
+    'Scalar::Util'          => 0,
+    'Carp'                  => 0,
+    'Clone'                 => 0
   },
   dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
   clean => { FILES    => 'Test-MockDBI-*' },

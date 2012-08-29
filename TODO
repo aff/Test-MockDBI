@@ -2,8 +2,8 @@
   can modify functionality based on the dbtype provided in the dsn.
   Ala DBD::mysql. This will solve the issue of different quoting.
 
-- Better tests
+- Better tests.
 
-- Increase number of DBI methods mocked up
+- Increase number of DBI methods mocked up.
 
-- Make sure more of the dbh\sth attributes works as expected
+- Make sure more of the dbh/sth attributes works as expected.
