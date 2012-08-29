@@ -8,7 +8,7 @@ use Clone;
 use Test::MockObject::Extends;
 use Scalar::Util;
 
-our $VERSION = '0.66_02';
+our $VERSION = '0.66_03';
 
 my $instance = undef;
 
